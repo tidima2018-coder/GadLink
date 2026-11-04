@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gadlink</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>gadlink</h1>
+    <button id="sign-out" type="button" hidden>выйти</button>
+  </header>
+
+  <main>
+    <section id="auth-section">
+      <h2>вход и регистрация</h2>
+      <form id="auth-form">
+        <label for="auth-email">почта</label>
+        <input id="auth-email" type="email" autocomplete="email" required>
+        <label for="auth-password">пароль</label>
+        <input id="auth-password" type="password" autocomplete="current-password" minlength="6" required>
+        <button type="submit">войти</button>
+        <button id="sign-up" type="button">зарегистрироваться</button>
+      </form>
+      <p id="auth-status" role="status"></p>
+      <button id="resend-confirmation" type="button" hidden>отправить письмо повторно</button>
+    </section>
+
+    <div id="app" hidden>
+      <nav aria-label="разделы">
+        <button type="button" data-section="profile-section">профиль</button>
+        <button type="button" data-section="feed-section">лента</button>
+        <button type="button" data-section="chats-section">чаты</button>
+        <button type="button" data-section="communities-section">сервера</button>
+      </nav>
+
+      <section id="profile-section" class="page-section">
+        <h2>профиль</h2>
+        <form id="profile-form">
+          <label for="profile-username">ник</label>
+          <input id="profile-username" maxlength="40" required>
+          <label for="profile-about">о себе</label>
+          <textarea id="profile-about" maxlength="300"></textarea>
+          <label for="profile-avatar-file">файл аватарки</label>
+          <input id="profile-avatar-file" type="file" accept="image/*">
+          <label for="profile-avatar">или ссылка на аватарку</label>
+          <input id="profile-avatar" type="url">
+          <button type="submit">сохранить профиль</button>
+        </form>
+        <p id="profile-status" role="status"></p>
+      </section>
+
+      <section id="feed-section" class="page-section" hidden>
+        <h2>лента</h2>
+        <form id="post-form">
+          <label for="post-content">текст поста</label>
+          <textarea id="post-content" maxlength="2000"></textarea>
+          <label for="post-media">ссылка на фото или видео</label>
+          <input id="post-media" type="url">
+          <button type="submit">опубликовать</button>
+        </form>
+        <p id="feed-status" role="status"></p>
+        <div id="posts"></div>
+      </section>
+
+      <section id="chats-section" class="page-section" hidden>
+        <h2>чаты</h2>
+        <form id="conversation-form">
+          <label for="conversation-users">ники участников через запятую</label>
+          <input id="conversation-users" required>
+          <label for="conversation-name">название группы (необязательно)</label>
+          <input id="conversation-name" maxlength="80">
+          <button type="submit">создать чат</button>
+        </form>
+        <p id="chat-status" role="status"></p>
+        <ul id="conversation-list"></ul>
+        <div id="chat-view" hidden>
+          <h3 id="chat-title"></h3>
+          <div id="messages" aria-live="polite"></div>
+          <form id="message-form">
+            <label for="message-content">сообщение</label>
+            <input id="message-content" maxlength="2000" required>
+            <button type="submit">отправить</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="communities-section" class="page-section" hidden>
+        <h2>сервера и каналы</h2>
+        <form id="server-form">
+          <label for="server-name">название сервера</label>
+          <input id="server-name" maxlength="80" required>
+          <button type="submit">создать сервер</button>
+        </form>
+        <p id="community-status" role="status"></p>
+        <ul id="server-list"></ul>
+        <div id="server-view" hidden>
+          <h3 id="server-title"></h3>
+          <form id="channel-form">
+            <label for="channel-name">название канала</label>
+            <input id="channel-name" maxlength="80" required>
+            <button type="submit">создать канал</button>
+          </form>
+          <ul id="channel-list"></ul>
+          <div id="channel-view" hidden>
+            <h3 id="channel-title"></h3>
+            <div id="channel-messages" aria-live="polite"></div>
+            <form id="channel-message-form">
+              <label for="channel-message-content">сообщение канала</label>
+              <input id="channel-message-content" maxlength="2000" required>
+              <button type="submit">отправить</button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

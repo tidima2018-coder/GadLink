@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>подтверждение почты — gadlink</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>gadlink</h1>
+  </header>
+  <main>
+    <section>
+      <h2>подтверждение электронной почты</h2>
+      <p id="confirm-status" role="status">проверяем ссылку подтверждения...</p>
+      <form id="resend-form">
+        <label for="confirm-email">почта</label>
+        <input id="confirm-email" type="email" autocomplete="email" required>
+        <button id="resend-confirmation" type="button" hidden>Отправить письмо повторно</button>
+      </form>
+      <a href="./index.html">перейти ко входу</a>
+    </section>
+  </main>
+  <script type="module" src="./js/confirm.js"></script>
+</body>
+</html>
