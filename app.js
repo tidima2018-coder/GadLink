@@ -14,6 +14,7 @@ let currentConversation = null;
 let currentChannel = null;
 let chatSubscription = null;
 let channelSubscription = null;
+let feedPostsChannel = null;
 let resendTimer = null;
 
 const byId = (id) => document.getElementById(id);
@@ -267,10 +268,16 @@ async function loadApp() {
   }
   showApp(true);
   await Promise.all([loadProfile(), loadPosts(), loadConversations(), loadServers()]);
-  supabase
-    .channel("feed-posts")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "posts" }, loadPosts)
-    .subscribe();
+  if (!feedPostsChannel) {
+    feedPostsChannel = supabase
+      .channel("feed-posts")
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "posts"
+      }, loadPosts)
+      .subscribe();
+  }
 }
 
 function botAnswer(text) {
