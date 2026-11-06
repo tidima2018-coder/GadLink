@@ -1,3 +1,4 @@
+import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
 import {
   getCurrentUser,
@@ -16,11 +17,22 @@ let chatSubscription = null;
 let channelSubscription = null;
 let feedPostsChannel = null;
 let resendTimer = null;
+let conversationFilter = "all";
 
 const byId = (id) => document.getElementById(id);
 const setStatus = (id, message) => {
-  byId(id).textContent = message;
+  const status = byId(id);
+  if (id === "auth-status") status.classList.remove("auth-status--error");
+  status.textContent = message;
 };
+
+function showAuthError(message) {
+  const status = byId("auth-status");
+  status.classList.remove("auth-status--error");
+  status.textContent = message;
+  void status.offsetWidth;
+  status.classList.add("auth-status--error");
+}
 
 function showApp(isSignedIn) {
   byId("auth-section").hidden = isSignedIn;
@@ -122,7 +134,10 @@ async function loadConversations() {
   const ids = (memberships || []).map((item) => item.conversation_id);
   const list = byId("conversation-list");
   list.replaceChildren();
-  if (!ids.length) return;
+  if (!ids.length) {
+    applyConversationFilters();
+    return;
+  }
 
   const { data: conversations, error: conversationError } = await supabase
     .from("conversations")
@@ -132,6 +147,8 @@ async function loadConversations() {
 
   for (const conversation of conversations || []) {
     const item = document.createElement("li");
+    item.className = "conversation-row";
+    item.dataset.type = conversation.is_group ? "group" : "personal";
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = conversation.name || `чат ${conversation.id.slice(0, 8)}`;
@@ -139,6 +156,23 @@ async function loadConversations() {
     item.append(button);
     list.append(item);
   }
+  applyConversationFilters();
+}
+
+function applyConversationFilters() {
+  const query = (byId("conversation-search")?.value || "").trim().toLocaleLowerCase();
+  const rows = [...(byId("conversation-list")?.querySelectorAll(".conversation-row") || [])];
+  let visibleCount = 0;
+  for (const row of rows) {
+    const matchesFilter = conversationFilter === "all" || row.dataset.type === conversationFilter;
+    const matchesSearch = row.textContent.toLocaleLowerCase().includes(query);
+    row.hidden = !matchesFilter || !matchesSearch;
+    if (!row.hidden) visibleCount += 1;
+  }
+  const count = byId("conversation-count");
+  if (count) count.textContent = String(rows.length);
+  const empty = byId("conversation-empty");
+  if (empty) empty.hidden = visibleCount > 0;
 }
 
 function addMessage(container, message) {
@@ -297,6 +331,19 @@ document.querySelectorAll("[data-section]").forEach((button) => {
   });
 });
 
+byId("conversation-search").addEventListener("input", applyConversationFilters);
+document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    conversationFilter = button.dataset.conversationFilter;
+    document.querySelectorAll("[data-conversation-filter]").forEach((filterButton) => {
+      const selected = filterButton === button;
+      filterButton.classList.toggle("selected", selected);
+      filterButton.setAttribute("aria-pressed", String(selected));
+    });
+    applyConversationFilters();
+  });
+});
+
 byId("auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submitButton = byId("auth-form").querySelector('button[type="submit"]');
@@ -308,7 +355,7 @@ byId("auth-form").addEventListener("submit", async (event) => {
     await loadApp();
   } catch (error) {
     showApp(false);
-    setStatus("auth-status", getAuthErrorMessage(error));
+    showAuthError(getAuthErrorMessage(error));
     showResendButton(error.needsConfirmation);
   } finally {
     submitButton.disabled = false;

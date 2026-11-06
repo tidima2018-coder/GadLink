@@ -32,6 +32,7 @@
         <button type="button" data-section="profile-section">профиль</button>
         <button type="button" data-section="feed-section">лента</button>
         <button type="button" data-section="chats-section">чаты</button>
+        <button type="button" data-section="friends-section">друзья</button>
         <button type="button" data-section="communities-section">сервера</button>
       </nav>
 
@@ -66,6 +67,19 @@
 
       <section id="chats-section" class="page-section" hidden>
         <h2>чаты</h2>
+        <label class="conversation-search-row" for="conversation-search">
+          <span aria-hidden="true">⌕</span>
+          <input id="conversation-search" type="search" placeholder="Search" autocomplete="off">
+        </label>
+        <div class="chat-notice">
+          <strong>Never miss a message!</strong>
+          <span>Enable notifications to stay updated.</span>
+        </div>
+        <div class="conversation-filters" role="group" aria-label="Фильтр диалогов">
+          <button type="button" class="selected" data-conversation-filter="all" aria-pressed="true">All <b id="conversation-count">0</b></button>
+          <button type="button" data-conversation-filter="personal" aria-pressed="false">Личные</button>
+          <button type="button" data-conversation-filter="group" aria-pressed="false">Группы</button>
+        </div>
         <form id="conversation-form">
           <label for="conversation-users">ники участников через запятую</label>
           <input id="conversation-users" required>
@@ -75,6 +89,7 @@
         </form>
         <p id="chat-status" role="status"></p>
         <ul id="conversation-list"></ul>
+        <p id="conversation-empty" hidden>Диалоги не найдены</p>
         <div id="chat-view" hidden>
           <h3 id="chat-title"></h3>
           <div id="messages" aria-live="polite"></div>
@@ -86,6 +101,31 @@
         </div>
       </section>
 
+      
+<section id="friends-section" class="page-section" hidden>
+  <h2>Друзья</h2>
+
+  <h3>Найти друзей</h3>
+  <form id="friend-search-form">
+    <input
+      id="friend-search"
+      type="search"
+      placeholder="Поиск по нику"
+      autocomplete="off"
+      required
+    >
+    <button type="submit">Найти</button>
+  </form>
+
+  <p id="friend-status" role="status"></p>
+  <div id="friend-search-results"></div>
+
+  <h3>Заявки в друзья</h3>
+  <div id="friend-requests"></div>
+
+  <h3>Мои друзья</h3>
+  <div id="friends-list"></div>
+</section>
       <section id="communities-section" class="page-section" hidden>
         <h2>сервера и каналы</h2>
         <form id="server-form">
