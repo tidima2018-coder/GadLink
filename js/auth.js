@@ -37,10 +37,21 @@ export function getAuthErrorMessage(error) {
   const code = (error?.code || "").toLowerCase();
   const message = (error?.message || "").toLowerCase();
 
+  if (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed") ||
+    message.includes("fetch failed")
+  ) {
+    return "Не удалось связаться с сервером авторизации. Проверьте интернет и статус проекта Supabase, затем попробуйте ещё раз.";
+  }
   if (code.includes("email_not_confirmed") || message.includes("email not confirmed")) {
     return "Почта ещё не подтверждена. Проверьте письмо и попробуйте войти снова.";
   }
-  if (code.includes("otp_expired") || message.includes("expired") || message.includes("invalid")) {
+  if (code.includes("invalid_credentials") || message.includes("invalid login credentials")) {
+    return "Аккаунт не найден или пароль неверный. Проверьте данные или зарегистрируйтесь.";
+  }
+  if (code.includes("otp_expired") || message.includes("expired")) {
     return "Ссылка подтверждения недействительна или устарела. Запросите новое письмо.";
   }
   if (code.includes("email_address_invalid") || message.includes("invalid email")) {

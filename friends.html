@@ -1,0 +1,176 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Друзья — GadLink</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0e101b;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    header {
+      padding: 24px;
+      background: #191d30;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 { font-size: 25px; }
+    a { color: #8996ff; text-decoration: none; }
+
+    main {
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+
+    .search {
+      display: flex;
+      gap: 10px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 15px;
+      border-radius: 10px;
+      border: 1px solid #414761;
+      background: #202438;
+      color: white;
+      font-size: 15px;
+    }
+
+    button {
+      padding: 13px 18px;
+      border: 0;
+      border-radius: 10px;
+      background: #5865f2;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .user {
+      margin-top: 15px;
+      background: #1b2033;
+      padding: 17px;
+      border-radius: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .username { overflow-wrap: anywhere; }
+    #status { color: #aab1ca; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>GadLink</strong>
+    <a href="index.html">На главную</a>
+  </header>
+
+  <main>
+    <h1>Найти друзей</h1>
+    <p>Найди пользователя по нику и отправь заявку.</p>
+
+    <form class="search" id="search-form">
+      <input
+        id="username"
+        placeholder="Введите ник пользователя"
+        required
+      >
+      <button type="submit">Найти</button>
+    </form>
+
+    <div id="results"></div>
+    <p id="status" role="status"></p>
+  </main>
+
+  <script type="module">
+    import { searchUsers, addFriend } from "./js/friends.js";
+    import { supabase } from "./js/supabaseClient.js";
+
+    const form = document.getElementById("search-form");
+    const input = document.getElementById("username");
+    const results = document.getElementById("results");
+    const status = document.getElementById("status");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      results.replaceChildren();
+      status.textContent = "Ищем пользователей...";
+
+      try {
+        const { data: { user } } =
+          await supabase.auth.getUser();
+
+        if (!user) {
+          status.textContent = "Сначала войдите в аккаунт.";
+          return;
+        }
+
+        const users = await searchUsers(input.value);
+
+        const others = users.filter(
+          person => person.id !== user.id
+        );
+
+        if (others.length === 0) {
+          status.textContent = "Пользователи не найдены.";
+          return;
+        }
+
+        status.textContent = "";
+
+        for (const person of others) {
+          const card = document.createElement("div");
+          card.className = "user";
+
+          const name = document.createElement("strong");
+          name.className = "username";
+          name.textContent = person.username;
+
+          const button = document.createElement("button");
+          button.textContent = "Добавить";
+
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+
+            try {
+              await addFriend(person.id);
+              button.textContent = "Заявка отправлена";
+            } catch (error) {
+              status.textContent =
+                "Не удалось отправить заявку. Возможно, она уже существует.";
+              button.disabled = false;
+              console.error(error);
+            }
+          });
+
+          card.append(name, button);
+          results.append(card);
+        }
+      } catch (error) {
+        status.textContent = "Ошибка поиска пользователей.";
+        console.error(error);
+      }
+    });
+  </script>
+</body>
+</html>

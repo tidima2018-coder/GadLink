@@ -1,5 +1,7 @@
 import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
+import { getPublicProfileNames } from "./js/friends.js";
+import { createReelsFeed } from "./js/reels.js";
 import {
   getCurrentUser,
   getAuthErrorMessage,
@@ -12,12 +14,20 @@ import {
 
 let user = null;
 let currentConversation = null;
+let currentUsername = "Пользователь";
 let currentChannel = null;
 let chatSubscription = null;
 let channelSubscription = null;
 let feedPostsChannel = null;
 let resendTimer = null;
 let conversationFilter = "all";
+let reelsController = null;
+let menuCloseTimer = null;
+let menuAnimationFrame = null;
+let friendDialogCloseTimer = null;
+let avatarPreviewUrl = null;
+let currentAbout = "";
+let currentAvatarUrl = null;
 
 const byId = (id) => document.getElementById(id);
 const setStatus = (id, message) => {
@@ -25,6 +35,65 @@ const setStatus = (id, message) => {
   if (id === "auth-status") status.classList.remove("auth-status--error");
   status.textContent = message;
 };
+
+function setMenuOpen(isOpen, restoreFocus = true) {
+  const menu = byId("profile-menu");
+  const toggle = byId("menu-toggle");
+  clearTimeout(menuCloseTimer);
+  if (menuAnimationFrame !== null) cancelAnimationFrame(menuAnimationFrame);
+  menuAnimationFrame = null;
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню профиля" : "Открыть меню профиля");
+  toggle.classList.toggle("is-open", isOpen);
+
+  if (isOpen) {
+    menu.hidden = false;
+    menu.removeAttribute("inert");
+    menuAnimationFrame = requestAnimationFrame(() => {
+      menu.classList.add("is-open");
+      menuAnimationFrame = null;
+    });
+    byId("profile-menu").querySelector('[data-section="profile-section"]').focus();
+    return;
+  }
+
+  menu.classList.remove("is-open");
+  menu.setAttribute("inert", "");
+  if (restoreFocus) toggle.focus();
+  menuCloseTimer = setTimeout(() => {
+    menu.hidden = true;
+    menu.removeAttribute("inert");
+    menuCloseTimer = null;
+  }, 220);
+}
+
+function setFriendDialogOpen(isOpen, restoreFocus = true) {
+  const dialog = byId("friend-add-dialog");
+  clearTimeout(friendDialogCloseTimer);
+  if (isOpen) {
+    dialog.hidden = false;
+    dialog.removeAttribute("inert");
+    requestAnimationFrame(() => dialog.classList.add("is-open"));
+    byId("friend-search").focus();
+    return;
+  }
+
+  dialog.classList.remove("is-open");
+  dialog.setAttribute("inert", "");
+  if (restoreFocus) byId("add-contact-button").focus();
+  friendDialogCloseTimer = setTimeout(() => {
+    dialog.hidden = true;
+    dialog.removeAttribute("inert");
+    friendDialogCloseTimer = null;
+  }, 200);
+}
+
+function updateMenuAvatar(url) {
+  const preview = byId("menu-avatar-preview");
+  preview.hidden = !url;
+  if (url) preview.src = url;
+  byId("menu-avatar-placeholder").hidden = Boolean(url);
+}
 
 function showAuthError(message) {
   const status = byId("auth-status");
@@ -37,7 +106,13 @@ function showAuthError(message) {
 function showApp(isSignedIn) {
   byId("auth-section").hidden = isSignedIn;
   byId("app").hidden = !isSignedIn;
+  byId("menu-toggle").hidden = !isSignedIn;
+  byId("add-contact-button").hidden = !isSignedIn;
   byId("sign-out").hidden = !isSignedIn;
+  if (!isSignedIn) {
+    setMenuOpen(false, false);
+    setFriendDialogOpen(false, false);
+  }
 }
 
 function updateResendButton() {
@@ -70,6 +145,21 @@ function addText(parent, tag, text) {
   return element;
 }
 
+async function loadPublicNames(profileIds, statusId) {
+  const ids = [...new Set(profileIds.filter(Boolean))];
+  try {
+    return await getPublicProfileNames(ids);
+  } catch (error) {
+    console.error("GadLink profile names:", error);
+    setStatus(statusId, `Не удалось загрузить имена пользователей: ${error.message}`);
+    return new Map(ids.map((id) => [id, {
+      id,
+      username: "Пользователь",
+      avatar_url: null
+    }]));
+  }
+}
+
 function safeUrl(value) {
   try {
     const url = new URL(value);
@@ -95,28 +185,76 @@ function formatTime(value) {
   return value ? new Date(value).toLocaleString("ru-RU") : "";
 }
 
+async function saveProfile({ username, about, avatarUrl, avatarFile }) {
+  if (avatarFile) {
+    const extensions = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif"
+    };
+    const extension = extensions[avatarFile.type];
+    if (!extension) throw new Error("Используйте изображение JPG, PNG, WebP или GIF.");
+
+    const path = `${user.id}/${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(path, avatarFile, { contentType: avatarFile.type });
+    if (uploadError) throw uploadError;
+    avatarUrl = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+  }
+
+  const profile = { id: user.id, username, about, avatar_url: avatarUrl };
+  const { error } = await supabase.from("profiles").upsert(profile);
+  if (error) throw error;
+  return profile;
+}
+
+function syncProfileFields(profile) {
+  currentUsername = profile.username?.trim() || "Пользователь";
+  currentAbout = profile.about;
+  currentAvatarUrl = profile.avatar_url;
+  byId("profile-username").value = profile.username;
+  byId("profile-about").value = profile.about;
+  byId("profile-avatar").value = profile.avatar_url || "";
+  byId("menu-profile-username").value = profile.username;
+  byId("profile-menu-name").textContent = currentUsername;
+  updateMenuAvatar(profile.avatar_url);
+  if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+  avatarPreviewUrl = null;
+  byId("menu-avatar-file").value = "";
+}
+
 async function loadProfile() {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
   if (error) throw error;
   byId("profile-username").value = data?.username || "";
+  currentUsername = data?.username?.trim() || user.user_metadata?.username?.trim() || "Пользователь";
   byId("profile-about").value = data?.about || "";
   byId("profile-avatar").value = data?.avatar_url || "";
+  byId("menu-profile-username").value = currentUsername;
+  currentAbout = data?.about || "";
+  currentAvatarUrl = data?.avatar_url || null;
+  byId("profile-menu-name").textContent = currentUsername;
+  byId("profile-menu-email").textContent = user.email || "";
+  updateMenuAvatar(currentAvatarUrl);
 }
 
 async function loadPosts() {
   const { data, error } = await supabase
     .from("posts")
-    .select("id,user_id,content,media_url,created_at,profiles(username)")
+    .select("id,user_id,content,media_url,created_at")
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw error;
 
   const container = byId("posts");
+  const namesById = await loadPublicNames((data || []).map((post) => post.user_id), "feed-status");
   container.replaceChildren();
   for (const post of data || []) {
     const item = document.createElement("article");
     item.className = "item";
-    addText(item, "p", post.profiles?.username || "пользователь");
+    addText(item, "p", namesById.get(post.user_id)?.username || "Пользователь");
     addText(item, "p", post.content);
     addMedia(item, post.media_url);
     addText(item, "small", formatTime(post.created_at));
@@ -136,7 +274,7 @@ async function loadConversations() {
   list.replaceChildren();
   if (!ids.length) {
     applyConversationFilters();
-    return;
+    return [];
   }
 
   const { data: conversations, error: conversationError } = await supabase
@@ -145,18 +283,31 @@ async function loadConversations() {
     .in("id", ids);
   if (conversationError) throw conversationError;
 
+  const { data: participants, error: participantsError } = await supabase
+    .from("conversation_members")
+    .select("conversation_id,user_id")
+    .in("conversation_id", ids);
+  if (participantsError) throw participantsError;
+  const peerIds = [...new Set((participants || []).map((row) => row.user_id).filter((id) => id !== user.id))];
+  const namesByUserId = await loadPublicNames(peerIds, "chat-status");
+
   for (const conversation of conversations || []) {
     const item = document.createElement("li");
     item.className = "conversation-row";
     item.dataset.type = conversation.is_group ? "group" : "personal";
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = conversation.name || `чат ${conversation.id.slice(0, 8)}`;
-    button.addEventListener("click", () => openConversation(conversation));
+    const peers = (participants || [])
+      .filter((row) => row.conversation_id === conversation.id && row.user_id !== user.id)
+      .map((row) => namesByUserId.get(row.user_id)?.username || "Пользователь");
+    const displayName = conversation.name || (peers.length ? peers.join(", ") : "Пользователь");
+    button.textContent = displayName;
+    button.addEventListener("click", () => openConversation({ ...conversation, name: displayName }));
     item.append(button);
     list.append(item);
   }
   applyConversationFilters();
+  return conversations || [];
 }
 
 function applyConversationFilters() {
@@ -175,34 +326,43 @@ function applyConversationFilters() {
   if (empty) empty.hidden = visibleCount > 0;
 }
 
+function hasRenderedMessage(container, id) {
+  return [...container.querySelectorAll("[data-message-id]")].some((item) => item.dataset.messageId === String(id));
+}
+
 function addMessage(container, message) {
+  if (message.id && hasRenderedMessage(container, message.id)) {
+    const existing = [...container.querySelectorAll("[data-message-id]")]
+      .find((item) => item.dataset.messageId === String(message.id));
+    const author = existing?.querySelector(".message-author");
+    if (author) {
+      author.textContent = message.profiles?.username || (message.user_id === user.id ? currentUsername : "Пользователь");
+    }
+    return;
+  }
   const item = document.createElement("article");
-  item.className = "item";
-  addText(item, "p", message.profiles?.username || (message.user_id === user.id ? "вы" : "пользователь"));
-  addText(item, "p", message.content);
-  addText(item, "small", formatTime(message.created_at));
+  item.className = `message-item ${message.user_id === user.id ? "is-own" : "is-other"}`;
+  if (message.id) item.dataset.messageId = message.id;
+  const author = addText(item, "strong", message.profiles?.username || (message.user_id === user.id ? currentUsername : "Пользователь"));
+  author.className = "message-author";
+  addText(item, "p", message.content).className = "message-content";
+  const time = document.createElement("time");
+  const createdAt = message.created_at ? new Date(message.created_at) : new Date();
+  time.dateTime = createdAt.toISOString();
+  time.textContent = createdAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  time.className = "message-time";
+  item.append(time);
   container.append(item);
+  container.scrollTop = container.scrollHeight;
 }
 
 async function openConversation(conversation) {
   currentConversation = conversation;
   byId("chat-view").hidden = false;
-  byId("chat-title").textContent = conversation.name || "личный чат";
+  byId("chat-title").textContent = conversation.name || "Личный чат";
   byId("messages").replaceChildren();
 
   if (chatSubscription) await supabase.removeChannel(chatSubscription);
-  const { data, error } = await supabase
-    .from("messages")
-    .select("id,user_id,content,created_at,profiles(username)")
-    .eq("conversation_id", conversation.id)
-    .order("created_at")
-    .limit(100);
-  if (error) {
-    setStatus("chat-status", error.message);
-    return;
-  }
-  for (const message of data || []) addMessage(byId("messages"), message);
-
   chatSubscription = supabase
     .channel(`messages-${conversation.id}`)
     .on("postgres_changes", {
@@ -210,12 +370,62 @@ async function openConversation(conversation) {
       schema: "public",
       table: "messages",
       filter: `conversation_id=eq.${conversation.id}`
-    }, (payload) => {
-      if (payload.new.user_id === user.id) return;
-      addMessage(byId("messages"), payload.new);
+    }, async (payload) => {
+      const message = payload.new;
+      const namesById = await loadPublicNames([message.user_id], "chat-status");
+      message.profiles = namesById.get(message.user_id);
+      addMessage(byId("messages"), message);
     })
-    .subscribe();
+    .subscribe((status) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setStatus("chat-status", "Не удалось подключить обновления чата. Проверьте Realtime в Supabase.");
+      }
+    });
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id,user_id,content,created_at")
+    .eq("conversation_id", conversation.id)
+    .order("created_at")
+    .limit(100);
+  if (error) {
+    setStatus("chat-status", error.message);
+    return;
+  }
+  const namesById = await loadPublicNames((data || []).map((message) => message.user_id), "chat-status");
+  for (const message of data || []) {
+    message.profiles = namesById.get(message.user_id);
+    addMessage(byId("messages"), message);
+  }
+  byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
+
+async function openContactChat({ userId, username }) {
+  if (!user || !userId) return;
+  setStatus("chat-status", "Открываем диалог…");
+
+  try {
+    const namesById = await loadPublicNames([userId], "chat-status");
+    const contactName = namesById.get(userId)?.username || username || "Пользователь";
+    const { data, error } = await supabase.rpc("gadlink_get_or_create_direct_conversation", { peer_user_id: userId });
+    if (error) throw error;
+    const conversation = data?.[0];
+    if (!conversation) throw new Error("Supabase не вернул диалог.");
+
+    document.querySelector('[data-section="chats-section"]')?.click();
+    await loadConversations();
+    await openConversation({ ...conversation, name: contactName });
+    setStatus("chat-status", `Диалог с ${contactName} открыт.`);
+  } catch (error) {
+    console.error("GadLink contact chat:", error);
+    setStatus("chat-status", `Не удалось открыть чат: ${error.message}`);
+    document.querySelector('[data-section="chats-section"]')?.click();
+  }
+}
+
+window.addEventListener("gadlink:open-contact-chat", (event) => {
+  void openContactChat(event.detail || {});
+});
 
 async function loadServers() {
   const { data, error } = await supabase.from("servers").select("id,name").order("name");
@@ -271,7 +481,7 @@ async function openChannel(channel) {
   if (channelSubscription) await supabase.removeChannel(channelSubscription);
   const { data, error } = await supabase
     .from("channel_messages")
-    .select("id,user_id,content,created_at,profiles(username)")
+    .select("id,user_id,content,created_at")
     .eq("channel_id", channel.id)
     .order("created_at")
     .limit(100);
@@ -279,7 +489,11 @@ async function openChannel(channel) {
     setStatus("community-status", error.message);
     return;
   }
-  for (const message of data || []) addMessage(byId("channel-messages"), message);
+  const namesById = await loadPublicNames((data || []).map((message) => message.user_id), "community-status");
+  for (const message of data || []) {
+    message.profiles = namesById.get(message.user_id);
+    addMessage(byId("channel-messages"), message);
+  }
 
   channelSubscription = supabase
     .channel(`channel-messages-${channel.id}`)
@@ -288,9 +502,11 @@ async function openChannel(channel) {
       schema: "public",
       table: "channel_messages",
       filter: `channel_id=eq.${channel.id}`
-    }, (payload) => {
-      if (payload.new.user_id === user.id) return;
-      addMessage(byId("channel-messages"), payload.new);
+    }, async (payload) => {
+      const message = payload.new;
+      const names = await loadPublicNames([message.user_id], "community-status");
+      message.profiles = names.get(message.user_id);
+      addMessage(byId("channel-messages"), message);
     })
     .subscribe();
 }
@@ -301,6 +517,7 @@ async function loadApp() {
     throw new Error("Сначала подтвердите адрес электронной почты.");
   }
   showApp(true);
+  reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([loadProfile(), loadPosts(), loadConversations(), loadServers()]);
   if (!feedPostsChannel) {
     feedPostsChannel = supabase
@@ -325,11 +542,69 @@ function botAnswer(text) {
 
 document.querySelectorAll("[data-section]").forEach((button) => {
   button.addEventListener("click", () => {
+    const targetSection = button.dataset.section;
     document.querySelectorAll(".page-section").forEach((section) => {
-      section.hidden = section.id !== button.dataset.section;
+      section.hidden = section.id !== targetSection;
     });
+    document.querySelectorAll("[data-section]").forEach((item) => item.classList.toggle("is-active", item === button));
+    if (targetSection === "reels-section") reelsController?.activate();
+    else reelsController?.deactivate();
+    if (button.closest("#profile-menu")) setMenuOpen(false);
   });
 });
+
+byId("menu-toggle").addEventListener("click", () => {
+  setMenuOpen(byId("menu-toggle").getAttribute("aria-expanded") !== "true");
+});
+document.querySelector(".profile-menu__backdrop").addEventListener("click", () => setMenuOpen(false));
+byId("add-contact-button").addEventListener("click", () => setFriendDialogOpen(true));
+byId("friend-add-close").addEventListener("click", () => setFriendDialogOpen(false));
+document.querySelector(".friend-add-dialog__backdrop").addEventListener("click", () => setFriendDialogOpen(false));
+byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    byId("menu-avatar-file").click();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (!byId("friend-add-dialog").hidden) {
+    if (event.key === "Escape") {
+      setFriendDialogOpen(false);
+      return;
+    }
+    if (event.key === "Tab") {
+      const actions = [...byId("friend-add-dialog").querySelectorAll(".friend-add-dialog__panel button:not(:disabled), .friend-add-dialog__panel input:not(:disabled)")];
+      const first = actions[0];
+      const last = actions[actions.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    return;
+  }
+  if (byId("menu-toggle").getAttribute("aria-expanded") !== "true") return;
+  if (event.key === "Escape") {
+    setMenuOpen(false);
+    return;
+  }
+  if (event.key === "Tab") {
+    const actions = [...byId("profile-menu").querySelectorAll(".profile-menu__panel button:not([hidden]):not(:disabled)")];
+    const first = actions[0];
+    const last = actions[actions.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
+
 
 byId("conversation-search").addEventListener("input", applyConversationFilters);
 document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
@@ -407,55 +682,110 @@ byId("auth-email").addEventListener("input", () => {
 });
 
 byId("sign-out").addEventListener("click", async () => {
+  const switchStatus = byId("account-switch-status");
+  switchStatus.textContent = "";
   try {
     await signOutUser();
   } catch (error) {
-    setStatus("auth-status", error.message);
+    switchStatus.textContent = `Не удалось сменить аккаунт: ${error.message}`;
     return;
   }
   user = null;
+  reelsController?.reset();
   currentConversation = null;
   currentChannel = null;
   if (chatSubscription) await supabase.removeChannel(chatSubscription);
+  chatSubscription = null;
   if (channelSubscription) await supabase.removeChannel(channelSubscription);
   showApp(false);
 });
 
 byId("profile-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  let avatarUrl = safeUrl(byId("profile-avatar").value.trim()) || null;
-  const file = byId("profile-avatar-file").files[0];
-  if (file) {
-    const extensions = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-      "image/gif": "gif"
-    };
-    const extension = extensions[file.type];
-    if (!extension) {
-      setStatus("profile-status", "используйте изображение jpg, png, webp или gif.");
-      return;
-    }
-    const path = `${user.id}/${Date.now()}.${extension}`;
-    const { error: uploadError } = await supabase.storage
-      .from("avatars")
-      .upload(path, file, { contentType: file.type });
-    if (uploadError) {
-      setStatus("profile-status", uploadError.message);
-      return;
-    }
-    avatarUrl = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+  const submitButton = byId("profile-form").querySelector('[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const profile = await saveProfile({
+      username: byId("profile-username").value.trim(),
+      about: byId("profile-about").value.trim(),
+      avatarUrl: safeUrl(byId("profile-avatar").value.trim()) || null,
+      avatarFile: byId("profile-avatar-file").files[0]
+    });
+    syncProfileFields(profile);
+    setStatus("profile-status", "Профиль сохранён.");
+  } catch (error) {
+    setStatus("profile-status", error.message);
+  } finally {
+    submitButton.disabled = false;
+    byId("profile-avatar-file").value = "";
   }
-  const profile = {
-    id: user.id,
-    username: byId("profile-username").value.trim(),
-    about: byId("profile-about").value.trim(),
-    avatar_url: avatarUrl
-  };
-  const { error } = await supabase.from("profiles").upsert(profile);
-  setStatus("profile-status", error ? error.message : "профиль сохранён.");
-  byId("profile-avatar-file").value = "";
+});
+
+byId("menu-avatar-file").addEventListener("change", () => {
+  const file = byId("menu-avatar-file").files[0];
+  if (!file) return;
+  const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  if (!supportedTypes.includes(file.type)) {
+    setStatus("menu-profile-status", "Используйте изображение JPG, PNG, WebP или GIF.");
+    byId("menu-avatar-file").value = "";
+    return;
+  }
+  if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+  avatarPreviewUrl = URL.createObjectURL(file);
+  updateMenuAvatar(avatarPreviewUrl);
+  setStatus("menu-profile-status", "Аватар выбран. Сохраните профиль, чтобы применить изменения.");
+});
+
+byId("menu-profile-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = byId("menu-profile-form");
+  const submitButton = form.querySelector('[type="submit"]');
+  submitButton.disabled = true;
+  setStatus("menu-profile-status", "Сохраняем профиль...");
+  try {
+    const profile = await saveProfile({
+      username: byId("menu-profile-username").value.trim(),
+      about: currentAbout,
+      avatarUrl: currentAvatarUrl,
+      avatarFile: byId("menu-avatar-file").files[0]
+    });
+    syncProfileFields(profile);
+    setStatus("menu-profile-status", "Профиль сохранён.");
+  } catch (error) {
+    setStatus("menu-profile-status", `Не удалось сохранить профиль: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+byId("password-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = byId("password-form");
+  const submitButton = form.querySelector('[type="submit"]');
+  const newPassword = byId("new-password").value;
+  if (newPassword !== byId("confirm-password").value) {
+    setStatus("password-status", "Новые пароли не совпадают.");
+    return;
+  }
+
+  submitButton.disabled = true;
+  setStatus("password-status", "Обновляем пароль...");
+  try {
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: byId("current-password").value
+    });
+    if (verifyError) throw verifyError;
+
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+    form.reset();
+    setStatus("password-status", "Пароль успешно изменён.");
+  } catch (error) {
+    setStatus("password-status", `Не удалось изменить пароль: ${getAuthErrorMessage(error)}`);
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 
 byId("post-form").addEventListener("submit", async (event) => {
@@ -500,6 +830,26 @@ byId("conversation-form").addEventListener("submit", async (event) => {
     return;
   }
   const name = byId("conversation-name").value.trim();
+  if (members.length === 2 && !name) {
+    const peerId = members.find((memberId) => memberId !== user.id);
+    const { data: directRows, error: directError } = await supabase.rpc(
+      "gadlink_get_or_create_direct_conversation",
+      { peer_user_id: peerId }
+    );
+    if (directError) {
+      setStatus("chat-status", directError.message);
+      return;
+    }
+    const direct = directRows?.[0];
+    if (!direct) {
+      setStatus("chat-status", "Supabase не вернул диалог.");
+      return;
+    }
+    byId("conversation-form").reset();
+    await loadConversations();
+    await openConversation(direct);
+    return;
+  }
   const { data: conversation, error } = await supabase
     .from("conversations")
     .insert({ name: name || null, is_group: members.length > 2 || Boolean(name), created_by: user.id })
@@ -527,11 +877,16 @@ byId("message-form").addEventListener("submit", async (event) => {
   const content = byId("message-content").value.trim();
   if (!content) return;
   if (content.startsWith("/ai ")) {
-    addMessage(byId("messages"), {
+    const { data: savedCommand, error: saveError } = await supabase.from("messages").insert({
+      conversation_id: currentConversation.id,
       user_id: user.id,
-      content,
-      created_at: new Date().toISOString()
-    });
+      content
+    }).select("id,user_id,content,created_at").single();
+    if (saveError) {
+      setStatus("chat-status", saveError.message);
+      return;
+    }
+    addMessage(byId("messages"), savedCommand);
     addMessage(byId("messages"), {
       user_id: "gadlink-bot",
       profiles: { username: "gadlink bot" },
@@ -541,20 +896,16 @@ byId("message-form").addEventListener("submit", async (event) => {
     byId("message-form").reset();
     return;
   }
-  const { error } = await supabase.from("messages").insert({
+  const { data: savedMessage, error } = await supabase.from("messages").insert({
     conversation_id: currentConversation.id,
     user_id: user.id,
     content
-  });
+  }).select("id,user_id,content,created_at").single();
   if (error) {
     setStatus("chat-status", error.message);
     return;
   }
-  addMessage(byId("messages"), {
-    user_id: user.id,
-    content,
-    created_at: new Date().toISOString()
-  });
+  addMessage(byId("messages"), savedMessage);
   byId("message-form").reset();
 });
 
@@ -618,6 +969,9 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
+    reelsController?.reset();
+    if (chatSubscription) void supabase.removeChannel(chatSubscription);
+    chatSubscription = null;
     user = null;
     showApp(false);
   }

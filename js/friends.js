@@ -15,6 +15,33 @@ export async function searchUsers(username) {
   return data || [];
 }
 
+export async function getPublicProfileNames(profileIds) {
+  const ids = [...new Set(profileIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const { data, error } = await supabase.rpc(
+    "get_public_profile_names",
+    { profile_ids: ids }
+  );
+  if (error) throw error;
+
+  const profilesById = new Map(
+    (data || []).map((profile) => [
+      profile.id,
+      {
+        id: profile.id,
+        username: profile.username?.trim() || "Пользователь",
+        avatar_url: profile.avatar_url || null
+      }
+    ])
+  );
+  for (const id of ids) {
+    if (!profilesById.has(id)) {
+      profilesById.set(id, { id, username: "Пользователь", avatar_url: null });
+    }
+  }
+  return profilesById;
+}
 
 // Отправка заявки в друзья
 export async function addFriend(userId) {

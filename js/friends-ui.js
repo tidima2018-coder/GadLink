@@ -3,6 +3,7 @@ import { supabase } from "./supabaseClient.js";
 
 import {
   searchUsers,
+  getPublicProfileNames,
   addFriend,
   acceptFriend,
   removeFriend
@@ -20,6 +21,9 @@ const resultsBox = document.getElementById("friend-search-results");
 const requestsBox = document.getElementById("friend-requests");
 const friendsBox = document.getElementById("friends-list");
 const statusBox = document.getElementById("friend-status");
+const contactsFilter = document.getElementById("contacts-filter");
+const contactsList = document.getElementById("contacts-list");
+const contactsEmpty = document.getElementById("contacts-empty");
 
 if (
   section &&
@@ -214,6 +218,64 @@ if (
       : link.requester_id;
   }
 
+  function renderContacts() {
+    if (!contactsList || !contactsEmpty) return;
+    const query = (contactsFilter?.value || "").trim().toLocaleLowerCase();
+    const friends = state.links
+      .filter((link) => link.status === "accepted")
+      .map((link) => profileFor(otherId(link)))
+      .filter((profile) => (profile.username || "Пользователь").toLocaleLowerCase().includes(query))
+      .sort((a, b) => (a.username || "").localeCompare(b.username || "", "ru"));
+
+    contactsList.replaceChildren();
+    contactsEmpty.hidden = friends.length > 0;
+    for (const profile of friends) {
+      const row = document.createElement("article");
+      row.className = "contact-row";
+      const identity = document.createElement("div");
+      identity.className = "contact-identity";
+
+      if (profile.avatar_url && /^https?:\/\//i.test(profile.avatar_url)) {
+        const avatar = document.createElement("img");
+        avatar.className = "contact-avatar";
+        avatar.src = profile.avatar_url;
+        avatar.alt = "";
+        avatar.referrerPolicy = "no-referrer";
+        identity.append(avatar);
+      } else {
+        const avatar = document.createElement("span");
+        avatar.className = "contact-avatar contact-avatar--placeholder";
+        avatar.setAttribute("aria-hidden", "true");
+        avatar.textContent = (profile.username || "?").slice(0, 1).toLocaleUpperCase();
+        identity.append(avatar);
+      }
+
+      const details = document.createElement("span");
+      details.className = "contact-details";
+      const name = document.createElement("strong");
+      name.textContent = profile.username || "Пользователь";
+      const subtitle = document.createElement("small");
+      subtitle.textContent = "В друзьях";
+      details.append(name, subtitle);
+      identity.append(details);
+
+      const chatButton = document.createElement("button");
+      chatButton.type = "button";
+      chatButton.className = "contact-chat-button";
+      chatButton.setAttribute("aria-label", `Открыть чат с ${name.textContent}`);
+      chatButton.title = "Открыть чат";
+      chatButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4.2A7.5 7.5 0 1 1 20 11.5Z"/></svg><span>Написать</span>';
+      chatButton.addEventListener("click", () => {
+        window.dispatchEvent(new CustomEvent("gadlink:open-contact-chat", {
+          detail: { userId: profile.id, username: profile.username || "Пользователь" }
+        }));
+      });
+
+      row.append(identity, chatButton);
+      contactsList.append(row);
+    }
+  }
+
   // Входящие заявки и список друзей
   function renderRequestsAndFriends() {
     requestsBox.replaceChildren();
@@ -228,6 +290,8 @@ if (
     const friends = state.links.filter(
       link => link.status === "accepted"
     );
+
+    renderContacts();
 
     // Входящие заявки
     for (const link of incoming) {
@@ -259,6 +323,12 @@ if (
 
     // Список друзей
     for (const link of friends) {
+      const friend = profileFor(otherId(link));
+      const message = createButton("Написать", () => {
+        window.dispatchEvent(new CustomEvent("gadlink:open-contact-chat", {
+          detail: { userId: friend.id, username: friend.username || "Пользователь" }
+        }));
+      });
       const remove = createButton(
         "Удалить из друзей",
         async () => {
@@ -271,8 +341,8 @@ if (
 
       friendsBox.append(
         personCard(
-          profileFor(otherId(link)),
-          [remove]
+          friend,
+          [message, remove]
         )
       );
     }
@@ -383,30 +453,8 @@ if (
 
       state.links = links || [];
 
-      const ids = [
-        ...new Set(state.links.map(otherId))
-      ];
-
-      state.profileById = new Map();
-
-      if (ids.length) {
-        const {
-          data: profiles,
-          error: profileError
-        } = await supabase
-          .from("profiles")
-          .select("id,username,avatar_url")
-          .in("id", ids);
-
-        if (profileError) throw profileError;
-
-        for (const profile of profiles || []) {
-          state.profileById.set(
-            profile.id,
-            profile
-          );
-        }
-      }
+      const ids = [...new Set(state.links.map(otherId))];
+      state.profileById = await getPublicProfileNames(ids);
 
       renderRequestsAndFriends();
       renderSearch();
@@ -453,10 +501,14 @@ if (
       }
 
       const users = await searchUsers(query);
-
-      state.searchResults = users.filter(
+      const visibleUsers = users.filter(
         person => person.id !== user.id
       );
+      const profileById = await getPublicProfileNames(visibleUsers.map((person) => person.id));
+      state.searchResults = visibleUsers.map((person) => ({
+        ...person,
+        ...profileById.get(person.id)
+      }));
 
       renderSearch();
 
@@ -479,4 +531,6 @@ if (
   navButton.addEventListener("click", () => {
     void refreshFriends();
   });
+
+  contactsFilter?.addEventListener("input", renderContacts);
 }

@@ -1,0 +1,10 @@
+{
+  "description": "A social messaging app for chatting with friends, sharing interactive Reels, and getting AI assistance, with conversations and activity saved across sessions.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
