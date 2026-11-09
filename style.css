@@ -622,7 +622,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 #conversation-list button { font-size: 14px; font-weight: 600; }
 #conversation-empty { order: 5; margin: 8px 0 16px; color: #929096; text-align: center; font-size: 13px; }
 #chat-status { order: 6; }
-#conversation-form { order: 7; width: 100%; max-width: none; margin-top: auto; }
 #chat-view { order: 8; width: 100%; }
 #messages { max-height: min(58vh, 620px); min-height: 180px; overflow-y: auto; align-content: start; padding: 8px 4px 14px; scroll-behavior: smooth; }
 #messages .message-item { display: grid; width: fit-content; max-width: min(82%, 560px); gap: 3px 16px; padding: 10px 13px 7px; border: 1px solid rgba(255,255,255,.07); border-radius: 16px; }
@@ -713,7 +712,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .conversation-filters { min-height: 46px; }
   #conversation-list button { min-height: 69px; }
   #conversation-list button::before { width: 50px; height: 50px; flex-basis: 50px; }
-  #conversation-form { margin-top: 16px; }
 }
 [hidden] {
     display: none !important;
@@ -1110,6 +1108,51 @@ main {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.create-menu {
+  position: absolute;
+  z-index: 20;
+  left: calc(88px + min(360px, calc(100% - 88px)) - 224px);
+  bottom: 76px;
+  width: 208px;
+  padding: 7px;
+  display: none;
+  gap: 3px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 16px;
+  background: #252427;
+  box-shadow: 0 14px 40px rgba(0,0,0,.42);
+}
+#app:has(#chats-section:not([hidden])) > .create-menu:not([hidden]),
+#app:has(#friends-section:not([hidden])) > .create-menu:not([hidden]) { display: grid; }
+.create-menu button {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f2eff2;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+.create-menu button:hover,
+.create-menu button:focus-visible { background: rgba(222,140,152,.12); }
+.create-menu button span { width: 22px; color: var(--accent); text-align: center; font-size: 17px; }
+.create-group-dialog #conversation-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.create-group-dialog #conversation-form label { margin: 0; }
+.create-group-dialog #conversation-form button { width: 100%; margin-top: 4px; }
+#group-create-status { min-height: 1.5em; margin: 12px 0 0; color: #c8a9af; font-size: 13px; overflow-wrap: anywhere; }
 .friend-add-dialog {
   position: fixed;
   z-index: 100;
@@ -1164,6 +1207,11 @@ main {
     left: auto;
     right: 14px;
     bottom: 16px;
+  }
+  .create-menu {
+    left: auto;
+    right: 14px;
+    bottom: 74px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

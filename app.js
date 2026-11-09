@@ -31,6 +31,7 @@ let reelsController = null;
 let menuCloseTimer = null;
 let menuAnimationFrame = null;
 let friendDialogCloseTimer = null;
+let groupDialogCloseTimer = null;
 let avatarPreviewUrl = null;
 let currentAbout = "";
 let currentAvatarUrl = null;
@@ -94,6 +95,36 @@ function setFriendDialogOpen(isOpen, restoreFocus = true) {
   }, 200);
 }
 
+function setCreateMenuOpen(isOpen) {
+  const menu = byId("create-menu");
+  const toggle = byId("add-contact-button");
+  menu.hidden = !isOpen;
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню создания" : "Создать группу, канал или контакт");
+  if (isOpen) menu.querySelector('[role="menuitem"]')?.focus();
+}
+
+function setCreateGroupDialogOpen(isOpen, restoreFocus = true) {
+  const dialog = byId("create-group-dialog");
+  clearTimeout(groupDialogCloseTimer);
+  if (isOpen) {
+    dialog.hidden = false;
+    dialog.removeAttribute("inert");
+    requestAnimationFrame(() => dialog.classList.add("is-open"));
+    byId("conversation-users").focus();
+    return;
+  }
+
+  dialog.classList.remove("is-open");
+  dialog.setAttribute("inert", "");
+  if (restoreFocus) byId("add-contact-button").focus();
+  groupDialogCloseTimer = setTimeout(() => {
+    dialog.hidden = true;
+    dialog.removeAttribute("inert");
+    groupDialogCloseTimer = null;
+  }, 200);
+}
+
 function updateMenuAvatar(url) {
   const preview = byId("menu-avatar-preview");
   preview.hidden = !url;
@@ -118,6 +149,8 @@ function showApp(isSignedIn) {
   if (!isSignedIn) {
     setMenuOpen(false, false);
     setFriendDialogOpen(false, false);
+    setCreateMenuOpen(false);
+    setCreateGroupDialogOpen(false, false);
   }
 }
 
@@ -703,13 +736,62 @@ document.querySelectorAll("[data-section]").forEach((button) => {
   });
 });
 
+function showCommunitiesForChannelCreation() {
+  document.querySelectorAll(".page-section").forEach((section) => {
+    section.hidden = section.id !== "communities-section";
+  });
+  document.querySelectorAll("[data-section]").forEach((item) => item.classList.remove("is-active"));
+  reelsController?.deactivate();
+
+  if (!byId("server-view").hidden && byId("channel-form").dataset.serverId) {
+    setStatus("community-status", "Введите название канала для выбранного сервера.");
+    byId("channel-name").focus();
+    return;
+  }
+
+  const firstServer = byId("server-list").querySelector("button");
+  if (firstServer) {
+    setStatus("community-status", "Выберите сервер, в котором нужно создать канал.");
+    firstServer.focus();
+  } else {
+    setStatus("community-status", "Сначала создайте сервер, затем добавьте в него канал.");
+    byId("server-name").focus();
+  }
+}
+
 byId("menu-toggle").addEventListener("click", () => {
   setMenuOpen(byId("menu-toggle").getAttribute("aria-expanded") !== "true");
 });
 document.querySelector(".profile-menu__backdrop").addEventListener("click", () => setMenuOpen(false));
-byId("add-contact-button").addEventListener("click", () => setFriendDialogOpen(true));
+byId("add-contact-button").addEventListener("click", () => {
+  setCreateMenuOpen(byId("create-menu").hidden);
+});
+byId("create-menu").addEventListener("click", (event) => {
+  const action = event.target.closest("[data-create-action]")?.dataset.createAction;
+  if (!action) return;
+  setCreateMenuOpen(false);
+
+  if (action === "group") {
+    document.querySelector('[data-section="chats-section"]')?.click();
+    byId("conversation-form").reset();
+    setStatus("group-create-status", "");
+    setCreateGroupDialogOpen(true);
+  } else if (action === "channel") {
+    showCommunitiesForChannelCreation();
+  } else if (action === "contact") {
+    setFriendDialogOpen(true);
+  }
+});
+document.addEventListener("click", (event) => {
+  if (byId("create-menu").hidden) return;
+  if (event.target.closest("#create-menu, #add-contact-button")) return;
+  setCreateMenuOpen(false);
+});
 byId("friend-add-close").addEventListener("click", () => setFriendDialogOpen(false));
 document.querySelector(".friend-add-dialog__backdrop").addEventListener("click", () => setFriendDialogOpen(false));
+byId("create-group-close").addEventListener("click", () => setCreateGroupDialogOpen(false));
+byId("create-group-dialog").querySelector(".friend-add-dialog__backdrop")
+  .addEventListener("click", () => setCreateGroupDialogOpen(false));
 byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
@@ -717,6 +799,25 @@ byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
+  if (!byId("create-group-dialog").hidden) {
+    if (event.key === "Escape") {
+      setCreateGroupDialogOpen(false);
+      return;
+    }
+    if (event.key === "Tab") {
+      const actions = [...byId("create-group-dialog").querySelectorAll(".friend-add-dialog__panel button:not(:disabled), .friend-add-dialog__panel input:not(:disabled)")];
+      const first = actions[0];
+      const last = actions[actions.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    return;
+  }
   if (!byId("friend-add-dialog").hidden) {
     if (event.key === "Escape") {
       setFriendDialogOpen(false);
@@ -733,6 +834,31 @@ document.addEventListener("keydown", (event) => {
         event.preventDefault();
         first.focus();
       }
+    }
+    return;
+  }
+  if (!byId("create-menu").hidden) {
+    if (event.key === "Escape") {
+      setCreateMenuOpen(false);
+      byId("add-contact-button").focus();
+    } else if (event.key === "Tab") {
+      const actions = [...byId("create-menu").querySelectorAll('[role="menuitem"]')];
+      const first = actions[0];
+      const last = actions[actions.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        byId("add-contact-button").focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        byId("add-contact-button").focus();
+      }
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const actions = [...byId("create-menu").querySelectorAll('[role="menuitem"]')];
+      const currentIndex = actions.indexOf(document.activeElement);
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = (currentIndex + direction + actions.length) % actions.length;
+      event.preventDefault();
+      actions[nextIndex].focus();
     }
     return;
   }
@@ -973,65 +1099,59 @@ byId("post-form").addEventListener("submit", async (event) => {
 
 byId("conversation-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const usernames = byId("conversation-users").value
+  const form = byId("conversation-form");
+  const submitButton = form.querySelector('button[type="submit"]');
+  const usernames = [...new Set(byId("conversation-users").value
     .split(",")
     .map((name) => name.trim())
-    .filter(Boolean);
-  const { data: profiles, error: profileError } = await supabase
-    .from("profiles")
-    .select("id,username")
-    .in("username", usernames);
-  if (profileError) {
-    setStatus("chat-status", profileError.message);
-    return;
-  }
-  const members = [...new Set([user.id, ...(profiles || []).map((profile) => profile.id)])];
-  if (members.length < 2) {
-    setStatus("chat-status", "укажите ник существующего пользователя.");
-    return;
-  }
+    .filter(Boolean))];
   const name = byId("conversation-name").value.trim();
-  if (members.length === 2 && !name) {
-    const peerId = members.find((memberId) => memberId !== user.id);
-    const { data: directId, error: directError } = await supabase.rpc(
-      "gadlink_get_or_create_direct_conversation",
-      { peer_user_id: peerId }
+  if (!name) {
+    setStatus("group-create-status", "Укажите название группы.");
+    return;
+  }
+  if (!user?.id) {
+    setStatus("group-create-status", "Войдите в аккаунт, чтобы создать группу.");
+    return;
+  }
+  submitButton.disabled = true;
+  setStatus("group-create-status", "Создаём группу…");
+  try {
+    const { data: profiles, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,username")
+      .in("username", usernames);
+    if (profileError) throw profileError;
+
+    const members = [...new Set([user.id, ...(profiles || []).map((profile) => profile.id)])];
+    if (members.length < 2) throw new Error("Укажите ник хотя бы одного существующего пользователя.");
+    if ((profiles || []).length !== usernames.length) {
+      throw new Error("Некоторые ники не найдены. Проверьте написание и попробуйте снова.");
+    }
+
+    const { data: conversation, error } = await supabase
+      .from("conversations")
+      .insert({ name, is_group: true, created_by: user.id })
+      .select("id,name,is_group")
+      .single();
+    if (error) throw error;
+
+    const { error: membersError } = await supabase.from("conversation_members").insert(
+      members.map((userId) => ({ conversation_id: conversation.id, user_id: userId }))
     );
-    if (directError) {
-      console.error("GadLink direct conversation RPC:", directError);
-      setStatus("chat-status", directError.message);
-      return;
-    }
-    const id = getDirectConversationId(directId);
-    if (!id) {
-      console.error("GadLink direct conversation RPC returned invalid UUID:", directId);
-      setStatus("chat-status", "Supabase не вернул корректный UUID диалога.");
-      return;
-    }
-    byId("conversation-form").reset();
+    if (membersError) throw membersError;
+
+    form.reset();
     await loadConversations();
-    await openConversation({ id, name: null, is_group: false });
-    return;
+    setCreateGroupDialogOpen(false);
+    await openConversation(conversation);
+    setStatus("chat-status", "Группа создана.");
+  } catch (error) {
+    console.error("GadLink create group:", error);
+    setStatus("group-create-status", `Не удалось создать группу: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
   }
-  const { data: conversation, error } = await supabase
-    .from("conversations")
-    .insert({ name: name || null, is_group: members.length > 2 || Boolean(name), created_by: user.id })
-    .select("id,name,is_group")
-    .single();
-  if (error) {
-    setStatus("chat-status", error.message);
-    return;
-  }
-  const { error: membersError } = await supabase.from("conversation_members").insert(
-    members.map((userId) => ({ conversation_id: conversation.id, user_id: userId }))
-  );
-  if (membersError) {
-    setStatus("chat-status", membersError.message);
-    return;
-  }
-  byId("conversation-form").reset();
-  await loadConversations();
-  await openConversation(conversation);
 });
 
 byId("message-form").addEventListener("submit", async (event) => {

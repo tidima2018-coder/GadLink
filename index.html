@@ -161,13 +161,6 @@
           <button type="button" data-conversation-filter="personal" aria-pressed="false">Личные</button>
           <button type="button" data-conversation-filter="group" aria-pressed="false">Группы</button>
         </div>
-        <form id="conversation-form">
-          <label for="conversation-users">ники участников через запятую</label>
-          <input id="conversation-users" required>
-          <label for="conversation-name">название группы (необязательно)</label>
-          <input id="conversation-name" maxlength="80">
-          <button type="submit">создать чат</button>
-        </form>
         <p id="chat-status" role="status"></p>
         <ul id="conversation-list"></ul>
         <p id="conversation-empty" hidden>Диалоги не найдены</p>
@@ -230,10 +223,14 @@
           </div>
         </div>
       </section>
-      <button id="add-contact-button" class="add-contact-button" type="button" aria-label="Добавить контакт" aria-controls="friend-add-dialog" hidden>
+      <div id="create-menu" class="create-menu" role="menu" aria-label="Создать" hidden>
+        <button type="button" role="menuitem" data-create-action="group"><span aria-hidden="true">♧</span>Создать группу</button>
+        <button type="button" role="menuitem" data-create-action="channel"><span aria-hidden="true">#</span>Создать канал</button>
+        <button type="button" role="menuitem" data-create-action="contact"><span aria-hidden="true">＋</span>Добавить контакт</button>
+      </div>
+      <button id="add-contact-button" class="add-contact-button" type="button" aria-label="Создать группу, канал или контакт" aria-expanded="false" aria-controls="create-menu" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="9" cy="8" r="3.2"></circle>
-          <path d="M3.5 19a5.5 5.5 0 0 1 11 0M18 8v7m-3.5-3.5h7"></path>
+          <path d="M12 5v14M5 12h14"></path>
         </svg>
       </button>
     </div>
@@ -253,6 +250,25 @@
       </form>
       <p id="friend-status" role="status"></p>
       <div id="friend-search-results"></div>
+    </section>
+  </div>
+
+  <div id="create-group-dialog" class="friend-add-dialog create-group-dialog" role="dialog" aria-modal="true" aria-labelledby="create-group-title" hidden inert>
+    <button class="friend-add-dialog__backdrop" type="button" aria-label="Закрыть создание группы"></button>
+    <section class="friend-add-dialog__panel">
+      <div class="friend-add-dialog__heading">
+        <h2 id="create-group-title">Создать группу</h2>
+        <button id="create-group-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <p class="friend-add-dialog__hint">Укажите ники участников через запятую и название группы.</p>
+      <form id="conversation-form">
+        <label for="conversation-users">ники участников через запятую</label>
+        <input id="conversation-users" required autocomplete="off">
+        <label for="conversation-name">название группы</label>
+        <input id="conversation-name" maxlength="80" required autocomplete="off">
+        <button type="submit">создать группу</button>
+      </form>
+      <p id="group-create-status" role="status"></p>
     </section>
   </div>
 
