@@ -17,9 +17,14 @@ let currentConversation = null;
 let currentUsername = "Пользователь";
 let currentChannel = null;
 let chatSubscription = null;
+let conversationMembershipSubscription = null;
 let channelSubscription = null;
 let feedPostsChannel = null;
 let sendingMessage = false;
+let conversationSyncTimer = null;
+let conversationLoadVersion = 0;
+const messageSyncCursors = new Map();
+const directConversationByPeer = new Map();
 let resendTimer = null;
 let conversationFilter = "all";
 let reelsController = null;
@@ -264,16 +269,23 @@ async function loadPosts() {
 }
 
 async function loadConversations() {
+  if (!user?.id) return [];
+  const ownerId = user.id;
+  const loadVersion = ++conversationLoadVersion;
   const { data: memberships, error } = await supabase
     .from("conversation_members")
     .select("conversation_id")
-    .eq("user_id", user.id);
+    .eq("user_id", ownerId);
   if (error) throw error;
+  if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
 
-  const ids = (memberships || []).map((item) => item.conversation_id);
+  const ids = [...new Set((memberships || [])
+    .map((item) => item.conversation_id)
+    .filter(isUuid))];
   const list = byId("conversation-list");
   list.replaceChildren();
   if (!ids.length) {
+    directConversationByPeer.clear();
     applyConversationFilters();
     return [];
   }
@@ -283,16 +295,27 @@ async function loadConversations() {
     .select("id,name,is_group")
     .in("id", ids);
   if (conversationError) throw conversationError;
+  if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
 
   const { data: participants, error: participantsError } = await supabase
     .from("conversation_members")
     .select("conversation_id,user_id")
     .in("conversation_id", ids);
   if (participantsError) throw participantsError;
+  if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
   const peerIds = [...new Set((participants || []).map((row) => row.user_id).filter((id) => id !== user.id))];
   const namesByUserId = await loadPublicNames(peerIds, "chat-status");
+  if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
 
+  directConversationByPeer.clear();
   for (const conversation of conversations || []) {
+    if (!conversation.is_group) {
+      const peers = (participants || [])
+        .filter((row) => row.conversation_id === conversation.id && row.user_id !== ownerId)
+        .map((row) => row.user_id);
+      if (peers.length === 1) directConversationByPeer.set(peers[0], conversation.id);
+    }
+
     const item = document.createElement("li");
     item.className = "conversation-row";
     item.dataset.type = conversation.is_group ? "group" : "personal";
@@ -338,6 +361,60 @@ function isUuid(value) {
 
 function getDirectConversationId(rpcResult) {
   return isUuid(rpcResult) ? rpcResult : null;
+}
+
+function updateMessageSyncCursor(conversationId, createdAt) {
+  if (!isUuid(conversationId) || !createdAt) return;
+  const current = messageSyncCursors.get(conversationId);
+  if (!current || createdAt > current) messageSyncCursors.set(conversationId, createdAt);
+}
+
+async function loadConversationHistory(conversationId, catchUp = false) {
+  const ownerId = user?.id;
+  if (!isUuid(conversationId) || !ownerId) return false;
+
+  const cursor = catchUp ? messageSyncCursors.get(conversationId) : null;
+  const messages = [];
+  if (cursor) {
+    let offset = 0;
+    const pageSize = 500;
+    while (true) {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id,user_id,content,created_at")
+        .eq("conversation_id", conversationId)
+        .gte("created_at", cursor)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
+      messages.push(...(data || []));
+      if ((data || []).length < pageSize) break;
+      offset += pageSize;
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id,user_id,content,created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
+    messages.push(...(data || []).reverse());
+  }
+
+  if (!messages.length) return true;
+  const namesById = await loadPublicNames(messages.map((message) => message.user_id), "chat-status");
+  if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
+  for (const message of messages) {
+    message.profiles = namesById.get(message.user_id);
+    addMessage(byId("messages"), message);
+    updateMessageSyncCursor(conversationId, message.created_at);
+  }
+  return true;
 }
 
 function addMessage(container, message) {
@@ -396,33 +473,69 @@ async function openConversation(conversation) {
       addMessage(byId("messages"), message);
     })
     .subscribe((status, error) => {
+      if (status === "SUBSCRIBED") {
+        void loadConversationHistory(conversationId, true).catch((historyError) => {
+          console.error("GadLink message reconnect sync:", historyError);
+          setStatus("chat-status", `Не удалось синхронизировать сообщения: ${historyError.message}`);
+        });
+      }
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         console.error("GadLink messages Realtime:", error || status);
         setStatus("chat-status", "Не удалось подключить обновления чата. Проверьте Realtime в Supabase.");
       }
     });
 
-  if (!isUuid(conversationId)) return false;
-  const { data, error } = await supabase
-    .from("messages")
-    .select("id,user_id,content,created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at")
-    .limit(100);
-  if (currentConversation?.id !== conversationId) return false;
-  if (error) {
+  try {
+    const loaded = await loadConversationHistory(conversationId);
+    if (!loaded) return false;
+  } catch (error) {
     console.error("GadLink messages history:", error);
-    setStatus("chat-status", error.message);
+    setStatus("chat-status", `Не удалось загрузить историю чата: ${error.message}`);
     return false;
-  }
-  const namesById = await loadPublicNames((data || []).map((message) => message.user_id), "chat-status");
-  if (currentConversation?.id !== conversationId) return false;
-  for (const message of data || []) {
-    message.profiles = namesById.get(message.user_id);
-    addMessage(byId("messages"), message);
   }
   byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
   return true;
+}
+
+function scheduleChatSync() {
+  if (!user?.id) return;
+  clearTimeout(conversationSyncTimer);
+  conversationSyncTimer = setTimeout(async () => {
+    conversationSyncTimer = null;
+    try {
+      await loadConversations();
+      const conversationId = currentConversation?.id;
+      if (isUuid(conversationId)) await loadConversationHistory(conversationId, true);
+    } catch (error) {
+      console.error("GadLink chat sync:", error);
+      setStatus("chat-status", `Не удалось синхронизировать чаты: ${error.message}`);
+    }
+  }, 200);
+}
+
+function subscribeToConversationMemberships() {
+  if (!user?.id) return;
+  if (conversationMembershipSubscription) {
+    void supabase.removeChannel(conversationMembershipSubscription);
+  }
+
+  const ownerId = user.id;
+  conversationMembershipSubscription = supabase
+    .channel(`conversation-members-${ownerId}`)
+    .on("postgres_changes", {
+      event: "INSERT",
+      schema: "public",
+      table: "conversation_members",
+      filter: `user_id=eq.${ownerId}`
+    }, scheduleChatSync)
+    .subscribe((status, error) => {
+      if (status === "SUBSCRIBED") {
+        scheduleChatSync();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("GadLink conversation membership Realtime:", error || status);
+        setStatus("chat-status", "Не удалось подключить обновление списка чатов. Список обновится при возвращении на страницу.");
+      }
+    });
 }
 
 async function openContactChat({ userId, username }) {
@@ -432,10 +545,13 @@ async function openContactChat({ userId, username }) {
   try {
     const namesById = await loadPublicNames([userId], "chat-status");
     const contactName = namesById.get(userId)?.username || username || "Пользователь";
-    const { data: conversationId, error } = await supabase.rpc("gadlink_get_or_create_direct_conversation", { peer_user_id: userId });
-    if (error) throw error;
-    const id = getDirectConversationId(conversationId);
-    if (!id) throw new Error("Supabase не вернул корректный UUID диалога.");
+    let id = directConversationByPeer.get(userId);
+    if (!id) {
+      const { data: conversationId, error } = await supabase.rpc("gadlink_get_or_create_direct_conversation", { peer_user_id: userId });
+      if (error) throw error;
+      id = getDirectConversationId(conversationId);
+      if (!id) throw new Error("Supabase не вернул корректный UUID диалога.");
+    }
 
     document.querySelector('[data-section="chats-section"]')?.click();
     await loadConversations();
@@ -543,7 +659,16 @@ async function loadApp() {
   }
   showApp(true);
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
-  await Promise.all([loadProfile(), loadPosts(), loadConversations(), loadServers()]);
+  await Promise.all([
+    loadProfile(),
+    loadPosts(),
+    loadConversations().catch((error) => {
+      console.error("GadLink conversations load:", error);
+      setStatus("chat-status", `Не удалось загрузить список чатов: ${error.message}`);
+    }),
+    loadServers()
+  ]);
+  subscribeToConversationMemberships();
   if (!feedPostsChannel) {
     feedPostsChannel = supabase
       .channel("feed-posts")
@@ -632,6 +757,10 @@ document.addEventListener("keydown", (event) => {
 
 
 byId("conversation-search").addEventListener("input", applyConversationFilters);
+window.addEventListener("online", scheduleChatSync);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") scheduleChatSync();
+});
 document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     conversationFilter = button.dataset.conversationFilter;
@@ -719,8 +848,15 @@ byId("sign-out").addEventListener("click", async () => {
   reelsController?.reset();
   currentConversation = null;
   currentChannel = null;
+  conversationLoadVersion += 1;
+  clearTimeout(conversationSyncTimer);
+  conversationSyncTimer = null;
+  messageSyncCursors.clear();
+  directConversationByPeer.clear();
   if (chatSubscription) await supabase.removeChannel(chatSubscription);
   chatSubscription = null;
+  if (conversationMembershipSubscription) await supabase.removeChannel(conversationMembershipSubscription);
+  conversationMembershipSubscription = null;
   if (channelSubscription) await supabase.removeChannel(channelSubscription);
   showApp(false);
 });
@@ -1024,7 +1160,17 @@ supabase.auth.onAuthStateChange((_event, session) => {
     reelsController?.reset();
     if (chatSubscription) void supabase.removeChannel(chatSubscription);
     chatSubscription = null;
+    if (conversationMembershipSubscription) void supabase.removeChannel(conversationMembershipSubscription);
+    conversationMembershipSubscription = null;
+    conversationLoadVersion += 1;
+    clearTimeout(conversationSyncTimer);
+    conversationSyncTimer = null;
+    messageSyncCursors.clear();
+    directConversationByPeer.clear();
+    currentConversation = null;
     user = null;
+    byId("conversation-list").replaceChildren();
+    applyConversationFilters();
     showApp(false);
   }
 });

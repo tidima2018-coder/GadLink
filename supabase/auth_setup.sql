@@ -68,8 +68,8 @@ begin
       ('public', 'posts', 'gadlink_posts_delete', 'PERMISSIVE', 'DELETE', 'user_id = auth.uid()', null),
       ('public', 'posts', 'gadlink_posts_guard_delete', 'RESTRICTIVE', 'DELETE', 'user_id = auth.uid()', null),
 
-      ('public', 'conversations', 'gadlink_conversations_read', 'PERMISSIVE', 'SELECT', 'created_by = auth.uid() or exists (select 1 from public.conversation_members m where m.conversation_id = conversations.id and m.user_id = auth.uid())', null),
-      ('public', 'conversations', 'gadlink_conversations_guard_read', 'RESTRICTIVE', 'SELECT', 'created_by = auth.uid() or exists (select 1 from public.conversation_members m where m.conversation_id = conversations.id and m.user_id = auth.uid())', null),
+      ('public', 'conversations', 'gadlink_conversations_read', 'PERMISSIVE', 'SELECT', 'exists (select 1 from public.conversation_members m where m.conversation_id = conversations.id and m.user_id = auth.uid())', null),
+      ('public', 'conversations', 'gadlink_conversations_guard_read', 'RESTRICTIVE', 'SELECT', 'exists (select 1 from public.conversation_members m where m.conversation_id = conversations.id and m.user_id = auth.uid())', null),
       ('public', 'conversations', 'gadlink_conversations_insert', 'PERMISSIVE', 'INSERT', null, 'created_by = auth.uid()'),
       ('public', 'conversations', 'gadlink_conversations_guard_insert', 'RESTRICTIVE', 'INSERT', null, 'created_by = auth.uid()'),
       ('public', 'conversations', 'gadlink_conversations_update', 'PERMISSIVE', 'UPDATE', 'created_by = auth.uid()', 'created_by = auth.uid()'),

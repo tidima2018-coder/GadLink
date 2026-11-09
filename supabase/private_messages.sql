@@ -124,17 +124,17 @@ grant select, insert on public.messages to authenticated;
 drop policy if exists gadlink_conversations_read on public.conversations;
 create policy gadlink_conversations_read on public.conversations
   for select to authenticated
-  using (created_by = (select auth.uid()) or public.gadlink_is_conversation_member(id, (select auth.uid())));
+  using (public.gadlink_is_conversation_member(id, (select auth.uid())));
 drop policy if exists gadlink_conversations_insert on public.conversations;
 create policy gadlink_conversations_insert on public.conversations
   for insert to authenticated
   with check (created_by = (select auth.uid()));
 
--- A caller may read only chats they created or belong to.
+-- A caller may read only chats they belong to.
 drop policy if exists gadlink_conversations_guard_read on public.conversations;
 create policy gadlink_conversations_guard_read on public.conversations
   as restrictive for select to authenticated
-  using (created_by = (select auth.uid()) or public.gadlink_is_conversation_member(id, (select auth.uid())));
+  using (public.gadlink_is_conversation_member(id, (select auth.uid())));
 
 -- Groups still use the existing group-chat flow. Private conversations are created only by the RPC above.
 drop policy if exists gadlink_conversations_guard_insert on public.conversations;
