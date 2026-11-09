@@ -19,6 +19,7 @@ let currentChannel = null;
 let chatSubscription = null;
 let channelSubscription = null;
 let feedPostsChannel = null;
+let sendingMessage = false;
 let resendTimer = null;
 let conversationFilter = "all";
 let reelsController = null;
@@ -330,6 +331,15 @@ function hasRenderedMessage(container, id) {
   return [...container.querySelectorAll("[data-message-id]")].some((item) => item.dataset.messageId === String(id));
 }
 
+function isUuid(value) {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function getDirectConversationId(rpcResult) {
+  return isUuid(rpcResult) ? rpcResult : null;
+}
+
 function addMessage(container, message) {
   if (message.id && hasRenderedMessage(container, message.id)) {
     const existing = [...container.querySelectorAll("[data-message-id]")]
@@ -357,47 +367,62 @@ function addMessage(container, message) {
 }
 
 async function openConversation(conversation) {
-  currentConversation = conversation;
+  const conversationId = conversation?.id;
+  if (!isUuid(conversationId)) {
+    currentConversation = null;
+    console.error("GadLink open conversation: invalid conversation id", conversation);
+    setStatus("chat-status", "Не удалось открыть чат: сервер не вернул корректный UUID диалога.");
+    return false;
+  }
+  currentConversation = { ...conversation, id: conversationId };
   byId("chat-view").hidden = false;
-  byId("chat-title").textContent = conversation.name || "Личный чат";
+  byId("chat-title").textContent = currentConversation.name || "Личный чат";
   byId("messages").replaceChildren();
 
   if (chatSubscription) await supabase.removeChannel(chatSubscription);
+  if (currentConversation?.id !== conversationId) return false;
   chatSubscription = supabase
-    .channel(`messages-${conversation.id}`)
+    .channel(`messages-${conversationId}`)
     .on("postgres_changes", {
       event: "INSERT",
       schema: "public",
       table: "messages",
-      filter: `conversation_id=eq.${conversation.id}`
+      filter: `conversation_id=eq.${conversationId}`
     }, async (payload) => {
       const message = payload.new;
       const namesById = await loadPublicNames([message.user_id], "chat-status");
+      if (currentConversation?.id !== conversationId) return;
       message.profiles = namesById.get(message.user_id);
       addMessage(byId("messages"), message);
     })
-    .subscribe((status) => {
+    .subscribe((status, error) => {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("GadLink messages Realtime:", error || status);
         setStatus("chat-status", "Не удалось подключить обновления чата. Проверьте Realtime в Supabase.");
       }
     });
 
+  if (!isUuid(conversationId)) return false;
   const { data, error } = await supabase
     .from("messages")
     .select("id,user_id,content,created_at")
-    .eq("conversation_id", conversation.id)
+    .eq("conversation_id", conversationId)
     .order("created_at")
     .limit(100);
+  if (currentConversation?.id !== conversationId) return false;
   if (error) {
+    console.error("GadLink messages history:", error);
     setStatus("chat-status", error.message);
-    return;
+    return false;
   }
   const namesById = await loadPublicNames((data || []).map((message) => message.user_id), "chat-status");
+  if (currentConversation?.id !== conversationId) return false;
   for (const message of data || []) {
     message.profiles = namesById.get(message.user_id);
     addMessage(byId("messages"), message);
   }
   byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return true;
 }
 
 async function openContactChat({ userId, username }) {
@@ -407,15 +432,15 @@ async function openContactChat({ userId, username }) {
   try {
     const namesById = await loadPublicNames([userId], "chat-status");
     const contactName = namesById.get(userId)?.username || username || "Пользователь";
-    const { data, error } = await supabase.rpc("gadlink_get_or_create_direct_conversation", { peer_user_id: userId });
+    const { data: conversationId, error } = await supabase.rpc("gadlink_get_or_create_direct_conversation", { peer_user_id: userId });
     if (error) throw error;
-    const conversation = data?.[0];
-    if (!conversation) throw new Error("Supabase не вернул диалог.");
+    const id = getDirectConversationId(conversationId);
+    if (!id) throw new Error("Supabase не вернул корректный UUID диалога.");
 
     document.querySelector('[data-section="chats-section"]')?.click();
     await loadConversations();
-    await openConversation({ ...conversation, name: contactName });
-    setStatus("chat-status", `Диалог с ${contactName} открыт.`);
+    const opened = await openConversation({ id, name: contactName, is_group: false });
+    if (opened) setStatus("chat-status", `Диалог с ${contactName} открыт.`);
   } catch (error) {
     console.error("GadLink contact chat:", error);
     setStatus("chat-status", `Не удалось открыть чат: ${error.message}`);
@@ -832,22 +857,24 @@ byId("conversation-form").addEventListener("submit", async (event) => {
   const name = byId("conversation-name").value.trim();
   if (members.length === 2 && !name) {
     const peerId = members.find((memberId) => memberId !== user.id);
-    const { data: directRows, error: directError } = await supabase.rpc(
+    const { data: directId, error: directError } = await supabase.rpc(
       "gadlink_get_or_create_direct_conversation",
       { peer_user_id: peerId }
     );
     if (directError) {
+      console.error("GadLink direct conversation RPC:", directError);
       setStatus("chat-status", directError.message);
       return;
     }
-    const direct = directRows?.[0];
-    if (!direct) {
-      setStatus("chat-status", "Supabase не вернул диалог.");
+    const id = getDirectConversationId(directId);
+    if (!id) {
+      console.error("GadLink direct conversation RPC returned invalid UUID:", directId);
+      setStatus("chat-status", "Supabase не вернул корректный UUID диалога.");
       return;
     }
     byId("conversation-form").reset();
     await loadConversations();
-    await openConversation(direct);
+    await openConversation({ id, name: null, is_group: false });
     return;
   }
   const { data: conversation, error } = await supabase
@@ -873,40 +900,65 @@ byId("conversation-form").addEventListener("submit", async (event) => {
 
 byId("message-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!currentConversation) return;
-  const content = byId("message-content").value.trim();
+  const form = byId("message-form");
+  const input = byId("message-content");
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (sendingMessage) return;
+
+  const conversationId = currentConversation?.id;
+  const content = input.value.trim();
+  if (!isUuid(conversationId)) {
+    console.error("GadLink send message: invalid active conversation id", conversationId);
+    setStatus("chat-status", "Не удалось отправить сообщение: откройте чат с корректным идентификатором.");
+    return;
+  }
   if (!content) return;
-  if (content.startsWith("/ai ")) {
-    const { data: savedCommand, error: saveError } = await supabase.from("messages").insert({
-      conversation_id: currentConversation.id,
-      user_id: user.id,
-      content
-    }).select("id,user_id,content,created_at").single();
-    if (saveError) {
-      setStatus("chat-status", saveError.message);
-      return;
+  if (!user?.id) {
+    setStatus("chat-status", "Сессия истекла. Войдите в аккаунт снова.");
+    return;
+  }
+
+  sendingMessage = true;
+  submitButton.disabled = true;
+  setStatus("chat-status", "Отправляем сообщение…");
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!authData.user || authData.user.id !== user.id) {
+      throw new Error("Сессия авторизации не совпадает с текущим пользователем. Войдите в аккаунт снова.");
     }
-    addMessage(byId("messages"), savedCommand);
-    addMessage(byId("messages"), {
-      user_id: "gadlink-bot",
-      profiles: { username: "gadlink bot" },
-      content: botAnswer(content.slice(4)),
-      created_at: new Date().toISOString()
-    });
-    byId("message-form").reset();
-    return;
+
+    const { data: savedMessage, error } = await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      user_id: authData.user.id,
+      content
+    }).select("id,conversation_id,user_id,content,created_at").single();
+    if (error) throw error;
+
+    if (savedMessage.conversation_id !== conversationId || savedMessage.user_id !== authData.user.id) {
+      throw new Error("Supabase вернул сообщение для другого чата или пользователя.");
+    }
+    if (currentConversation?.id === conversationId) {
+      addMessage(byId("messages"), savedMessage);
+      if (input.value.trim() === content) form.reset();
+
+      if (content.startsWith("/ai ")) {
+        addMessage(byId("messages"), {
+          user_id: "gadlink-bot",
+          profiles: { username: "gadlink bot" },
+          content: botAnswer(content.slice(4)),
+          created_at: new Date().toISOString()
+        });
+      }
+    }
+    setStatus("chat-status", "Сообщение отправлено.");
+  } catch (error) {
+    console.error("GadLink send message:", error);
+    setStatus("chat-status", `Не удалось отправить сообщение: ${error.message || error}`);
+  } finally {
+    sendingMessage = false;
+    submitButton.disabled = false;
   }
-  const { data: savedMessage, error } = await supabase.from("messages").insert({
-    conversation_id: currentConversation.id,
-    user_id: user.id,
-    content
-  }).select("id,user_id,content,created_at").single();
-  if (error) {
-    setStatus("chat-status", error.message);
-    return;
-  }
-  addMessage(byId("messages"), savedMessage);
-  byId("message-form").reset();
 });
 
 byId("server-form").addEventListener("submit", async (event) => {
