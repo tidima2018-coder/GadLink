@@ -234,14 +234,14 @@
         </details>
         <label class="conversation-search-row" for="conversation-search">
           <span aria-hidden="true">⌕</span>
-          <input id="conversation-search" type="search" placeholder="Search" autocomplete="off">
+          <input id="conversation-search" type="search" placeholder="Поиск по чатам" autocomplete="off">
         </label>
         <div class="chat-notice">
-          <strong>Never miss a message!</strong>
-          <span>Enable notifications to stay updated.</span>
+          <strong>Не пропускайте сообщения</strong>
+          <span>Включите уведомления, чтобы быть в курсе.</span>
         </div>
         <div class="conversation-filters" role="group" aria-label="Фильтр диалогов">
-          <button type="button" class="selected" data-conversation-filter="all" aria-pressed="true">All <b id="conversation-count">0</b></button>
+          <button type="button" class="selected" data-conversation-filter="all" aria-pressed="true">Все <b id="conversation-count">0</b></button>
           <button type="button" data-conversation-filter="personal" aria-pressed="false">Личные</button>
           <button type="button" data-conversation-filter="group" aria-pressed="false">Группы</button>
         </div>
@@ -250,6 +250,9 @@
         <p id="conversation-empty" hidden>Диалоги не найдены</p>
         <div id="chat-view" hidden>
           <div class="chat-view__header">
+            <button id="chat-back-button" class="chat-back-button" type="button" aria-label="К списку чатов" title="К списку чатов">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6M9 12h12"></path></svg>
+            </button>
             <span id="chat-peer-avatar" class="chat-peer-avatar" aria-hidden="true"></span>
             <h3 id="chat-title"></h3>
             <button id="chat-call-button" class="voice-call-icon-button" type="button" aria-label="Позвонить" title="Голосовой звонок" hidden>

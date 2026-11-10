@@ -71,12 +71,27 @@ if (
     }
 
     #friends-section .friend-avatar {
+      position: relative;
+      display: grid;
       width: 42px;
       height: 42px;
+      flex: 0 0 42px;
+      place-items: center;
+      overflow: hidden;
       border-radius: 50%;
-      object-fit: cover;
       background: #4d587b;
-      flex-shrink: 0;
+      color: #f7e9ec;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    #friends-section .friend-avatar__image {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      object-fit: cover;
     }
 
     #friends-section .friend-username {
@@ -165,6 +180,8 @@ if (
 
     const avatar = document.createElement("div");
     avatar.className = "friend-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = (profile?.username || "Пользователь").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
 
     if (
       profile?.avatar_url &&
@@ -172,15 +189,14 @@ if (
     ) {
       const image = document.createElement("img");
 
-      image.className = "friend-avatar";
+      image.className = "friend-avatar__image";
       image.alt = "";
       image.referrerPolicy = "no-referrer";
       image.src = profile.avatar_url;
-
-      person.append(image);
-    } else {
-      person.append(avatar);
+      image.addEventListener("error", () => image.remove(), { once: true });
+      avatar.append(image);
     }
+    person.append(avatar);
 
     const name = document.createElement("strong");
     name.className = "friend-username";
@@ -244,6 +260,13 @@ if (
         avatar.src = profile.avatar_url;
         avatar.alt = "";
         avatar.referrerPolicy = "no-referrer";
+        avatar.addEventListener("error", () => {
+          const placeholder = document.createElement("span");
+          placeholder.className = "contact-avatar contact-avatar--placeholder";
+          placeholder.setAttribute("aria-hidden", "true");
+          placeholder.textContent = (profile.username || "?").slice(0, 1).toLocaleUpperCase("ru-RU");
+          avatar.replaceWith(placeholder);
+        }, { once: true });
         identity.append(avatar);
       } else {
         const avatar = document.createElement("span");
