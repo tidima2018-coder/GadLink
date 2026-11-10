@@ -8,6 +8,8 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
 export function createReelsFeed({ supabase, getUser }) {
   const container = document.getElementById("reels-container");
+  const playerLayout = document.querySelector(".reels-player-layout");
+  const scrollControls = document.querySelector(".reels-scroll-controls");
   const status = document.getElementById("reels-status");
   const commentsPanel = document.getElementById("reels-comments");
   const commentsList = document.getElementById("reels-comments-list");
@@ -506,6 +508,13 @@ export function createReelsFeed({ supabase, getUser }) {
     const width = Math.min(availableWidth, availableHeight * ratio);
     stage.style.width = `${width}px`;
     stage.style.height = `${width / ratio}px`;
+    if (card.dataset.path === activePath) syncScrollControlPosition(stage);
+  }
+
+  function syncScrollControlPosition(stage) {
+    const layoutLeft = playerLayout.getBoundingClientRect().left;
+    const stageLeft = stage.getBoundingClientRect().left;
+    scrollControls.style.left = `${Math.max(12, stageLeft - layoutLeft - 68)}px`;
   }
 
   async function toggleLike(card, path) {
@@ -646,6 +655,7 @@ export function createReelsFeed({ supabase, getUser }) {
     const thisActivation = ++activationId;
     pauseAll(video);
     activePath = card.dataset.path;
+    syncScrollControlPosition(card.querySelector(".reel-stage"));
     if (!video) {
       if (!media.src) {
         try {
