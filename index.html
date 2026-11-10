@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gadlink</title>
+  <meta name="theme-color" content="#19191c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GadLink">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/gadlink-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./assets/gadlink-icon.svg">
+  <title>GadLink</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -40,6 +47,18 @@
         <button type="submit">Обновить пароль</button>
       </form>
       <p id="password-status" class="profile-menu__status" role="status"></p>
+      <section class="notification-settings" aria-labelledby="notification-settings-title">
+        <h3 id="notification-settings-title">Уведомления</h3>
+        <p>Push работают, когда сайт закрыт. На iPhone установите GadLink на экран «Домой» и откройте приложение оттуда.</p>
+        <button id="push-toggle" type="button">Включить уведомления</button>
+        <button id="pwa-install" type="button" hidden>Установить GadLink</button>
+        <p id="pwa-install-status" class="profile-menu__status" role="status"></p>
+        <label id="push-preview-option" class="push-preview-option" hidden>
+          <input id="push-show-preview" type="checkbox">
+          Показывать текст сообщений в уведомлениях
+        </label>
+        <p id="push-status" class="profile-menu__status" role="status"></p>
+      </section>
       <button class="profile-menu__action" type="button" data-section="profile-section">
         <span aria-hidden="true">⚙</span>
         <span>О себе и профиль</span>

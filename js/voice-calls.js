@@ -38,9 +38,14 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   const remoteAudio = byId("voice-call-remote-audio");
   let inboxChannel = null;
   let activeCall = null;
+  let startingCall = false;
+  const incomingCallRequests = new Set();
   let initialisedUserId = null;
   let historyRequest = 0;
   let historyTimer = null;
+  let inboxChannelOwnerId = null;
+  let inboxChannelReady = false;
+  let inboxSubscriptionPromise = null;
 
   function setStatus(message) {
     byId("calls-status").textContent = message;
@@ -298,10 +303,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   }
 
   async function createOffer() {
-    if (!activeCall?.outgoing || activeCall.peerConnection?.localDescription) return;
+    if (!activeCall?.outgoing || activeCall.peerConnection?.localDescription || activeCall.offerStarted) return;
+    activeCall.offerStarted = true;
     try {
       setCallStatus("Соединение…");
       const peerConnection = await createPeerConnection();
+      if (!activeCall?.outgoing) return;
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       await broadcast("offer", { description: peerConnection.localDescription });
@@ -493,7 +500,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       setStatus("Нельзя звонить самому себе или пользователю с некорректным ID.");
       return;
     }
-    if (activeCall) {
+    if (activeCall || startingCall) {
       setStatus("Сначала завершите текущий звонок.");
       return;
     }
@@ -502,10 +509,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       return;
     }
 
+    startingCall = true;
     let localStream;
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     } catch (error) {
+      startingCall = false;
       console.error("GadLink microphone access:", error);
       setStatus(error.name === "NotAllowedError"
         ? "Разрешите доступ к микрофону в настройках браузера."
@@ -515,6 +524,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
     if (activeCall || getUser()?.id !== owner.id) {
       for (const track of localStream.getTracks()) track.stop();
+      startingCall = false;
       return;
     }
     const profile = await getPeerProfile(peerId);
@@ -561,6 +571,8 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         await releaseCallResources();
       }
       setStatus(`Не удалось начать звонок: ${error.message}`);
+    } finally {
+      startingCall = false;
     }
   }
 
@@ -568,6 +580,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     const owner = getUser();
     if (!owner?.id || !isUuid(row?.id) || row.callee_id !== owner.id ||
         !isUuid(row.caller_id) || row.status !== "ringing") return;
+    if (activeCall?.id === row.id || incomingCallRequests.has(row.id)) return;
     if (activeCall) {
       try {
         const { error } = await supabase.rpc("gadlink_transition_voice_call", {
@@ -582,33 +595,80 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       return;
     }
 
-    const profile = await getPeerProfile(row.caller_id);
-    if (getUser()?.id !== owner.id || activeCall) return;
-    activeCall = {
-      id: row.id,
-      peerId: row.caller_id,
-      username: profile.username || "Пользователь",
-      avatarUrl: profile.avatar_url || null,
-      outgoing: false,
-      accepted: false,
-      connected: false,
-      localStream: null,
-      peerConnection: null,
-      pendingCandidates: []
-    };
-    showCallDialog(activeCall, true);
-    setCallStatus("Входящий звонок…");
-    activeCall.timeout = setTimeout(() => {
-      if (activeCall?.id !== row.id) return;
-      setCallStatus("Пропущенный звонок.");
-      void finishCall(null, true, "missed");
-    }, Math.max(0, RING_TIMEOUT_MS - (Date.now() - new Date(row.created_at).getTime())));
+    incomingCallRequests.add(row.id);
     try {
+      const profile = await getPeerProfile(row.caller_id);
+      if (getUser()?.id !== owner.id || activeCall) return;
+      activeCall = {
+        id: row.id,
+        peerId: row.caller_id,
+        username: profile.username || "Пользователь",
+        avatarUrl: profile.avatar_url || null,
+        outgoing: false,
+        accepted: false,
+        connected: false,
+        localStream: null,
+        peerConnection: null,
+        pendingCandidates: []
+      };
+      showCallDialog(activeCall, true);
+      setCallStatus("Входящий звонок…");
+      activeCall.timeout = setTimeout(() => {
+        if (activeCall?.id !== row.id) return;
+        setCallStatus("Пропущенный звонок.");
+        void finishCall(null, true, "missed");
+      }, Math.max(0, RING_TIMEOUT_MS - (Date.now() - new Date(row.created_at).getTime())));
       await joinCallChannel();
     } catch (error) {
       console.error("GadLink incoming call channel:", error);
-      await failCall(`Не удалось подключиться к звонку: ${error.message}`);
+      if (activeCall?.id === row.id) await failCall(`Не удалось подключиться к звонку: ${error.message}`);
+    } finally {
+      incomingCallRequests.delete(row.id);
     }
+  }
+
+  async function resumeIncomingCall(callId) {
+    const owner = getUser();
+    if (!owner?.id || !isUuid(callId)) return false;
+    const { data: row, error } = await supabase
+      .from("voice_calls")
+      .select("id,caller_id,callee_id,status,created_at")
+      .eq("id", callId)
+      .maybeSingle();
+    if (error) {
+      console.error("GadLink resume incoming call:", error);
+      setStatus(`Не удалось проверить звонок: ${error.message}`);
+      return false;
+    }
+    if (!row || row.callee_id !== owner.id) {
+      setStatus("Этот входящий звонок недоступен.");
+      return false;
+    }
+    if (row.status !== "ringing") {
+      setStatus(row.status === "missed" ? "Это был пропущенный звонок." : "Звонок уже завершён.");
+      await refreshHistory();
+      return false;
+    }
+    if (activeCall?.id === row.id) return true;
+    const age = Date.now() - new Date(row.created_at).getTime();
+    if (!Number.isFinite(age) || age >= RING_TIMEOUT_MS) {
+      try {
+        const { error: expireError } = await supabase.rpc("gadlink_transition_voice_call", {
+          target_call_id: row.id,
+          call_action: "missed"
+        });
+        if (expireError) throw expireError;
+      } catch (expireError) {
+        console.error("GadLink expire incoming call:", expireError);
+        setStatus(`Не удалось обновить пропущенный звонок: ${expireError.message}`);
+        return false;
+      }
+      setStatus("Это был пропущенный звонок.");
+      await refreshHistory();
+      return false;
+    }
+    await receiveIncomingCall(row);
+    return activeCall?.id === row.id;
   }
 
   async function acceptCall() {
@@ -678,40 +738,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     if (pending) void receiveIncomingCall(pending);
   }
 
-  async function subscribeInbox(ownerId) {
-    if (inboxChannel) await supabase.removeChannel(inboxChannel);
-    const channel = supabase.channel(`voice-inbox:${ownerId}`, { config: { private: true } });
-    inboxChannel = channel;
-    channel
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "voice_calls",
-        filter: `callee_id=eq.${ownerId}`
-      }, ({ new: row }) => void receiveIncomingCall(row))
-    await new Promise((resolve) => {
-      let settled = false;
-      const timeout = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
-        resolve(false);
-      }, 10_000);
-      channel.subscribe((status, error) => {
-        if (status === "SUBSCRIBED" && !settled) {
-          settled = true;
-          clearTimeout(timeout);
-          resolve(true);
-        } else if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT") && !settled) {
-          settled = true;
-          clearTimeout(timeout);
-          console.error("GadLink voice inbox Realtime:", error || status);
-          setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
-          resolve(false);
-        }
-      });
-    });
-
+  async function syncPendingIncomingCalls(ownerId) {
     const cutoff = new Date(Date.now() - RING_TIMEOUT_MS).toISOString();
     const { data, error } = await supabase
       .from("voice_calls")
@@ -727,6 +754,87 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       return;
     }
     renderIncomingHistory(data);
+  }
+
+  async function subscribeInbox(ownerId) {
+    if (inboxSubscriptionPromise) await inboxSubscriptionPromise;
+    if (inboxChannel && inboxChannelOwnerId === ownerId && inboxChannelReady) {
+      await syncPendingIncomingCalls(ownerId);
+      return;
+    }
+    if (inboxChannel) await supabase.removeChannel(inboxChannel);
+    const channel = supabase.channel(`voice-inbox:${ownerId}`, { config: { private: true } });
+    inboxChannel = channel;
+    inboxChannelOwnerId = ownerId;
+    inboxChannelReady = false;
+    channel.on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "voice_calls"
+      }, (payload) => {
+        const row = payload.new || payload.old;
+        if (row?.caller_id !== ownerId && row?.callee_id !== ownerId) return;
+        if (payload.eventType === "INSERT" && row.callee_id === ownerId && row.status === "ringing") {
+          void receiveIncomingCall(row);
+        }
+        if (payload.eventType === "UPDATE" && activeCall?.id === row.id) {
+          if (row.status === "accepted" && activeCall.outgoing && !activeCall.accepted) {
+            activeCall.accepted = true;
+            clearTimeout(activeCall.timeout);
+            activeCall.connectionTimer = setTimeout(() => {
+              void failCall("Не удалось установить соединение за отведённое время.");
+            }, 30_000);
+            void createOffer();
+          } else if (!["ringing", "accepted"].includes(row.status)) {
+            void finishCall(
+              row.status === "missed" ? "Пропущенный звонок." : "Звонок завершён.",
+              false
+            );
+          }
+        }
+        void refreshHistory();
+      });
+
+    let resolveSubscription;
+    const subscriptionPromise = new Promise((resolve) => {
+      resolveSubscription = resolve;
+    });
+    inboxSubscriptionPromise = subscriptionPromise;
+    await new Promise((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
+        resolve(false);
+      }, 10_000);
+      channel.subscribe((status, error) => {
+        if (inboxChannel !== channel) return;
+        if (status === "SUBSCRIBED") {
+          inboxChannelReady = true;
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve(true);
+          } else {
+            void syncPendingIncomingCalls(ownerId);
+            void refreshHistory();
+          }
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          inboxChannelReady = false;
+          console.error("GadLink voice inbox Realtime:", error || status);
+          setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve(false);
+          }
+        }
+      });
+    });
+    resolveSubscription();
+    if (inboxSubscriptionPromise === subscriptionPromise) inboxSubscriptionPromise = null;
+    if (inboxChannelReady && getUser()?.id === ownerId) await syncPendingIncomingCalls(ownerId);
   }
 
   async function initialize() {
@@ -748,6 +856,9 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       await supabase.removeChannel(inboxChannel);
       inboxChannel = null;
     }
+    inboxChannelOwnerId = null;
+    inboxChannelReady = false;
+    inboxSubscriptionPromise = null;
     if (activeCall) await releaseCallResources();
   }
 
@@ -773,11 +884,17 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       void Promise.all([subscribeInbox(getUser().id), refreshHistory()]);
     }
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" &&
+        getUser()?.id && initialisedUserId === getUser().id) {
+      void Promise.all([subscribeInbox(getUser().id), refreshHistory()]);
+    }
+  });
   window.addEventListener("beforeunload", () => {
     if (!activeCall) return;
     for (const track of activeCall.localStream?.getTracks() || []) track.stop();
     activeCall.peerConnection?.close();
   });
 
-  return { initialize, shutdown, startCall, refreshHistory };
+  return { initialize, shutdown, startCall, refreshHistory, resumeIncomingCall };
 }

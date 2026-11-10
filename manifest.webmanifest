@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "GadLink — чаты и звонки",
+  "short_name": "GadLink",
+  "description": "Чаты, контакты и голосовые звонки",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#09090b",
+  "theme_color": "#19191c",
+  "icons": [
+    {
+      "src": "./assets/gadlink-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js";
 import { createVoiceCallController } from "./js/voice-calls.js";
+import { createPushNotifications } from "./js/push-notifications.js";
 import {
   getCurrentUser,
   getAuthErrorMessage,
@@ -36,12 +37,19 @@ let groupDialogCloseTimer = null;
 let avatarPreviewUrl = null;
 let currentAbout = "";
 let currentAvatarUrl = null;
+let chatOverviewSubscription = null;
+const conversationOverviewRows = new Map();
+const conversationsById = new Map();
 
 const byId = (id) => document.getElementById(id);
 const voiceCallsController = createVoiceCallController({
   supabase,
   getUser: () => user,
   getPublicProfileNames
+});
+const pushController = createPushNotifications({
+  supabase,
+  getUser: () => user
 });
 const setStatus = (id, message) => {
   const status = byId(id);
@@ -307,6 +315,58 @@ async function loadPosts() {
   }
 }
 
+function updateConversationOverview(conversationId, overview = {}, incrementUnread = false) {
+  const row = conversationOverviewRows.get(conversationId);
+  if (!row) return;
+  const preview = row.querySelector(".conversation-row__preview");
+  const unread = row.querySelector(".conversation-row__unread");
+  const lastMessage = overview.last_message;
+  if (typeof lastMessage === "string" && lastMessage.length) {
+    preview.textContent = lastMessage;
+    preview.hidden = false;
+  } else if (overview.last_message === null) {
+    preview.textContent = "Нет сообщений";
+    preview.hidden = false;
+  }
+  const count = unread.textContent === "99+" ? 99 : Number(unread.textContent) || 0;
+  const nextCount = Object.hasOwn(overview, "unread_count")
+    ? Number(overview.unread_count) || 0
+    : incrementUnread ? count + 1 : count;
+  unread.textContent = nextCount > 99 ? "99+" : String(nextCount);
+  unread.hidden = nextCount < 1;
+}
+
+async function refreshConversationOverview() {
+  const ownerId = user?.id;
+  if (!ownerId) return;
+  const { data, error } = await supabase.rpc("gadlink_get_chat_overview");
+  if (error) throw error;
+  if (user?.id !== ownerId) return;
+  for (const overview of data || []) {
+    updateConversationOverview(overview.conversation_id, overview);
+  }
+}
+
+async function markConversationRead(conversationId) {
+  if (!isUuid(conversationId) || !user?.id) return;
+  const { error } = await supabase.rpc("gadlink_mark_conversation_read", {
+    target_conversation_id: conversationId
+  });
+  if (error) {
+    console.error("GadLink mark conversation read:", error);
+    setStatus("chat-status", `Не удалось обновить отметку прочтения: ${error.message}`);
+    return;
+  }
+  updateConversationOverview(conversationId, { unread_count: 0 });
+}
+
+function syncActivePushConversation() {
+  const chatIsVisible = !byId("chats-section").hidden &&
+    !byId("chat-view").hidden &&
+    document.visibilityState === "visible";
+  pushController.setActiveConversation(chatIsVisible ? currentConversation?.id : null);
+}
+
 async function loadConversations() {
   if (!user?.id) return [];
   const ownerId = user.id;
@@ -323,9 +383,17 @@ async function loadConversations() {
     .filter(isUuid))];
   const list = byId("conversation-list");
   list.replaceChildren();
+  conversationOverviewRows.clear();
+  conversationsById.clear();
   if (!ids.length) {
     directConversationByPeer.clear();
     applyConversationFilters();
+    try {
+      await refreshConversationOverview();
+    } catch (overviewError) {
+      console.error("GadLink chat overview:", overviewError);
+      setStatus("chat-status", `Не удалось загрузить прочитанные сообщения: ${overviewError.message}`);
+    }
     return [];
   }
 
@@ -364,12 +432,30 @@ async function loadConversations() {
       .filter((row) => row.conversation_id === conversation.id && row.user_id !== user.id)
       .map((row) => namesByUserId.get(row.user_id)?.username || "Пользователь");
     const displayName = conversation.name || (peers.length ? peers.join(", ") : "Пользователь");
-    button.textContent = displayName;
+    const title = document.createElement("span");
+    title.className = "conversation-row__title";
+    title.textContent = displayName;
+    const preview = document.createElement("span");
+    preview.className = "conversation-row__preview";
+    preview.textContent = "Нет сообщений";
+    const unread = document.createElement("span");
+    unread.className = "conversation-row__unread";
+    unread.hidden = true;
+    button.append(title, preview, unread);
+    item.dataset.conversationId = conversation.id;
+    conversationsById.set(conversation.id, { ...conversation, name: displayName });
+    conversationOverviewRows.set(conversation.id, item);
     button.addEventListener("click", () => openConversation({ ...conversation, name: displayName }));
     item.append(button);
     list.append(item);
   }
   applyConversationFilters();
+  try {
+    await refreshConversationOverview();
+  } catch (overviewError) {
+    console.error("GadLink chat overview:", overviewError);
+    setStatus("chat-status", `Не удалось загрузить прочитанные сообщения: ${overviewError.message}`);
+  }
   return conversations || [];
 }
 
@@ -464,6 +550,8 @@ function addMessage(container, message) {
     if (author) {
       author.textContent = message.profiles?.username || (message.user_id === user.id ? currentUsername : "Пользователь");
     }
+    const content = existing?.querySelector(".message-content");
+    if (content) content.textContent = message.content || "";
     return;
   }
   const item = document.createElement("article");
@@ -486,6 +574,7 @@ async function openConversation(conversation) {
   const conversationId = conversation?.id;
   if (!isUuid(conversationId)) {
     currentConversation = null;
+    syncActivePushConversation();
     console.error("GadLink open conversation: invalid conversation id", conversation);
     setStatus("chat-status", "Не удалось открыть чат: сервер не вернул корректный UUID диалога.");
     return false;
@@ -500,6 +589,7 @@ async function openConversation(conversation) {
   callButton.setAttribute("aria-label", `Позвонить ${currentConversation.name || "контакту"}`);
   callButton.title = `Позвонить ${currentConversation.name || "контакту"}`;
   byId("chat-view").hidden = false;
+  syncActivePushConversation();
   byId("chat-title").textContent = currentConversation.name || "Личный чат";
   byId("messages").replaceChildren();
 
@@ -508,16 +598,27 @@ async function openConversation(conversation) {
   chatSubscription = supabase
     .channel(`messages-${conversationId}`)
     .on("postgres_changes", {
-      event: "INSERT",
+      event: "*",
       schema: "public",
       table: "messages",
       filter: `conversation_id=eq.${conversationId}`
     }, async (payload) => {
       const message = payload.new;
+      if (payload.eventType === "DELETE") {
+        byId("messages").querySelector(`[data-message-id="${payload.old.id}"]`)?.remove();
+        return;
+      }
       const namesById = await loadPublicNames([message.user_id], "chat-status");
       if (currentConversation?.id !== conversationId) return;
       message.profiles = namesById.get(message.user_id);
       addMessage(byId("messages"), message);
+      updateMessageSyncCursor(conversationId, message.created_at);
+      updateConversationOverview(conversationId, { last_message: message.content }, false);
+      if (message.user_id !== user?.id && !byId("chats-section").hidden &&
+          !byId("chat-view").hidden &&
+          document.visibilityState === "visible") {
+        void markConversationRead(conversationId);
+      }
     })
     .subscribe((status, error) => {
       if (status === "SUBSCRIBED") {
@@ -539,6 +640,9 @@ async function openConversation(conversation) {
     console.error("GadLink messages history:", error);
     setStatus("chat-status", `Не удалось загрузить историю чата: ${error.message}`);
     return false;
+  }
+  if (!byId("chats-section").hidden && document.visibilityState === "visible") {
+    void markConversationRead(conversationId);
   }
   byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
   return true;
@@ -570,7 +674,7 @@ function subscribeToConversationMemberships() {
   conversationMembershipSubscription = supabase
     .channel(`conversation-members-${ownerId}`)
     .on("postgres_changes", {
-      event: "INSERT",
+      event: "*",
       schema: "public",
       table: "conversation_members",
       filter: `user_id=eq.${ownerId}`
@@ -581,6 +685,63 @@ function subscribeToConversationMemberships() {
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         console.error("GadLink conversation membership Realtime:", error || status);
         setStatus("chat-status", "Не удалось подключить обновление списка чатов. Список обновится при возвращении на страницу.");
+      }
+    });
+}
+
+function subscribeToChatOverview() {
+  if (!user?.id) return;
+  if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
+  const ownerId = user.id;
+  chatOverviewSubscription = supabase
+    .channel(`chat-overview-${ownerId}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "messages"
+    }, (payload) => {
+      const message = payload.new;
+      if (payload.eventType === "DELETE" || !message?.conversation_id ||
+          !conversationOverviewRows.has(message.conversation_id)) {
+        if (payload.eventType === "DELETE") {
+          void refreshConversationOverview().catch((error) => {
+            console.error("GadLink chat overview refresh:", error);
+          });
+        }
+        return;
+      }
+      updateConversationOverview(message.conversation_id, {
+        last_message: message.content
+      }, payload.eventType === "INSERT" &&
+        message.user_id !== ownerId &&
+        !(currentConversation?.id === message.conversation_id &&
+          !byId("chats-section").hidden &&
+          document.visibilityState === "visible"));
+      if (payload.eventType === "INSERT" &&
+          currentConversation?.id === message.conversation_id &&
+          !byId("chat-view").hidden &&
+          !byId("chats-section").hidden &&
+          document.visibilityState === "visible") {
+        void markConversationRead(message.conversation_id);
+      }
+    })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "conversation_read_state",
+      filter: `user_id=eq.${ownerId}`
+    }, () => {
+      void refreshConversationOverview().catch((error) => {
+        console.error("GadLink read state Realtime:", error);
+      });
+    })
+    .subscribe((status, error) => {
+      if (status === "SUBSCRIBED") {
+        void refreshConversationOverview().catch((overviewError) => {
+          console.error("GadLink chat overview reconnect:", overviewError);
+        });
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error("GadLink chat overview Realtime:", error || status);
       }
     });
 }
@@ -697,17 +858,46 @@ async function openChannel(channel) {
   channelSubscription = supabase
     .channel(`channel-messages-${channel.id}`)
     .on("postgres_changes", {
-      event: "INSERT",
+      event: "*",
       schema: "public",
       table: "channel_messages",
       filter: `channel_id=eq.${channel.id}`
     }, async (payload) => {
+      if (payload.eventType === "DELETE") {
+        byId("channel-messages").querySelector(`[data-message-id="${payload.old.id}"]`)?.remove();
+        return;
+      }
       const message = payload.new;
       const names = await loadPublicNames([message.user_id], "community-status");
       message.profiles = names.get(message.user_id);
       addMessage(byId("channel-messages"), message);
     })
     .subscribe();
+}
+
+async function openNotificationRoute() {
+  const url = new URL(window.location.href);
+  const conversationId = url.searchParams.get("conversation");
+  const callId = url.searchParams.get("call");
+  url.searchParams.delete("conversation");
+  url.searchParams.delete("call");
+  if (window.location.search !== url.search) {
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  if (isUuid(conversationId)) {
+    const conversation = conversationsById.get(conversationId);
+    if (conversation) {
+      document.querySelector('[data-section="chats-section"]')?.click();
+      await openConversation(conversation);
+    } else {
+      setStatus("chat-status", "Этот диалог больше недоступен.");
+    }
+  }
+  if (isUuid(callId)) {
+    document.querySelector('[data-section="calls-section"]')?.click();
+    await voiceCallsController.resumeIncomingCall(callId);
+  }
 }
 
 async function loadApp() {
@@ -725,9 +915,14 @@ async function loadApp() {
       setStatus("chat-status", `Не удалось загрузить список чатов: ${error.message}`);
     }),
     loadServers(),
-    voiceCallsController.initialize()
+    voiceCallsController.initialize(),
+    pushController.initialize().catch((error) => {
+      console.error("GadLink push initialization:", error);
+      setStatus("push-status", `Не удалось подготовить уведомления: ${error.message}`);
+    })
   ]);
   subscribeToConversationMemberships();
+  subscribeToChatOverview();
   if (!feedPostsChannel) {
     feedPostsChannel = supabase
       .channel("feed-posts")
@@ -738,6 +933,7 @@ async function loadApp() {
       }, loadPosts)
       .subscribe();
   }
+  await openNotificationRoute();
 }
 
 function botAnswer(text) {
@@ -759,6 +955,7 @@ document.querySelectorAll("[data-section]").forEach((button) => {
     if (targetSection === "reels-section") reelsController?.activate();
     else reelsController?.deactivate();
     if (targetSection === "calls-section") void voiceCallsController.refreshHistory();
+    syncActivePushConversation();
     if (button.closest("#profile-menu")) setMenuOpen(false);
   });
 });
@@ -912,7 +1109,10 @@ document.addEventListener("keydown", (event) => {
 byId("conversation-search").addEventListener("input", applyConversationFilters);
 window.addEventListener("online", scheduleChatSync);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") scheduleChatSync();
+  if (document.visibilityState === "visible") {
+    scheduleChatSync();
+    syncActivePushConversation();
+  }
 });
 document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -991,6 +1191,12 @@ byId("auth-email").addEventListener("input", () => {
 byId("sign-out").addEventListener("click", async () => {
   const switchStatus = byId("account-switch-status");
   switchStatus.textContent = "";
+  try {
+    await pushController.shutdown();
+  } catch (error) {
+    console.error("GadLink push sign-out cleanup:", error);
+    byId("push-status").textContent = `Не удалось отключить уведомления на этом устройстве: ${error.message}`;
+  }
   try {
     await signOutUser();
   } catch (error) {
@@ -1306,17 +1512,24 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
     void voiceCallsController.shutdown();
+    void pushController.shutdown().catch((error) => {
+      console.error("GadLink push auth cleanup:", error);
+    });
     reelsController?.reset();
     if (chatSubscription) void supabase.removeChannel(chatSubscription);
     chatSubscription = null;
     if (conversationMembershipSubscription) void supabase.removeChannel(conversationMembershipSubscription);
     conversationMembershipSubscription = null;
+    if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
+    chatOverviewSubscription = null;
     conversationLoadVersion += 1;
     clearTimeout(conversationSyncTimer);
     conversationSyncTimer = null;
     messageSyncCursors.clear();
     directConversationByPeer.clear();
     currentConversation = null;
+    conversationsById.clear();
+    conversationOverviewRows.clear();
     byId("chat-call-button").hidden = true;
     byId("chat-call-button").dataset.userId = "";
     user = null;

@@ -24,6 +24,9 @@ export function createReelsFeed({ supabase, getUser }) {
   let soundEnabled = false;
   let wheelLocked = false;
   let activationId = 0;
+  let interactionsChannel = null;
+  let interactionsOwnerId = null;
+  let interactionRefreshTimer = null;
 
   function setStatus(text, isError = false) {
     status.textContent = text;
@@ -97,6 +100,60 @@ export function createReelsFeed({ supabase, getUser }) {
     card.querySelector('[data-count="comments"]').textContent = new Intl.NumberFormat("ru-RU").format(comments.count ?? 0);
     card.querySelector('[data-action="like"]').classList.toggle("is-active", Boolean(liked.data?.length));
     card.querySelector('[data-action="save"]').classList.toggle("is-active", Boolean(saved.data?.length));
+  }
+
+  function scheduleInteractionRefresh(payload) {
+    const row = payload.new || payload.old;
+    const path = row?.reel_path;
+    if (!path || (path !== activePath && path !== commentsPath)) return;
+    clearTimeout(interactionRefreshTimer);
+    interactionRefreshTimer = window.setTimeout(async () => {
+      try {
+        const card = cardsByPath.get(path);
+        if (card && interactionsReady) await refreshStats(card, path);
+        if (commentsPath === path && !commentsPanel.hidden) await openComments(path);
+      } catch (error) {
+        console.error("GadLink Reels Realtime:", error);
+        setStatus(`Не удалось обновить Reels: ${error.message}`, true);
+      }
+    }, 120);
+  }
+
+  function subscribeToInteractions() {
+    const owner = userId();
+    if (!sectionActive || !interactionsReady || !owner) return;
+    if (interactionsChannel && interactionsOwnerId === owner) return;
+    if (interactionsChannel) void supabase.removeChannel(interactionsChannel);
+    interactionsOwnerId = owner;
+    interactionsChannel = supabase
+      .channel(`reel-interactions-${owner}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reel_likes"
+      }, scheduleInteractionRefresh)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reel_comments"
+      }, scheduleInteractionRefresh)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reel_saves"
+      }, (payload) => {
+        const row = payload.new || payload.old;
+        if (row?.user_id === owner) scheduleInteractionRefresh(payload);
+      })
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          const card = cardsByPath.get(activePath);
+          if (card) void refreshStats(card, activePath).catch(disableDbActions);
+          if (commentsPath && !commentsPanel.hidden) void openComments(commentsPath);
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("GadLink Reels Realtime subscription:", error || status);
+        }
+      });
   }
 
   function makeCard(file) {
@@ -563,6 +620,7 @@ export function createReelsFeed({ supabase, getUser }) {
       observeCards();
       try {
         await checkInteractionTables();
+        subscribeToInteractions();
         container.querySelectorAll("[data-db-action]").forEach((button) => { button.disabled = false; });
         const activeCard = activeVideo?.closest(".reel-card");
         if (activeCard) await refreshStats(activeCard, activeCard.dataset.path);
@@ -615,10 +673,29 @@ export function createReelsFeed({ supabase, getUser }) {
   });
 
   return {
-    activate() { sectionActive = true; load().then(() => { if (loaded) observeCards(); }); },
-    deactivate() { sectionActive = false; activationId += 1; pauseAll(); observer?.disconnect(); commentsPanel.hidden = true; },
+    activate() {
+      sectionActive = true;
+      load().then(() => {
+        if (loaded) {
+          observeCards();
+          subscribeToInteractions();
+        }
+      });
+    },
+    deactivate() {
+      sectionActive = false;
+      activationId += 1;
+      pauseAll();
+      observer?.disconnect();
+      commentsPanel.hidden = true;
+      commentsPath = null;
+      if (interactionsChannel) void supabase.removeChannel(interactionsChannel);
+      interactionsChannel = null;
+      interactionsOwnerId = null;
+    },
     reset() {
       this.deactivate();
+      clearTimeout(interactionRefreshTimer);
       container.replaceChildren();
       cardsByPath.clear();
       videoUrls.clear();

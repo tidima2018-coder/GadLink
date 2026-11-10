@@ -40,8 +40,11 @@ if (
     links: [],
     profileById: new Map(),
     searchResults: [],
-    loading: false
+    loading: false,
+    refreshPending: false
   };
+  let friendshipsChannel = null;
+  let friendshipsChannelUserId = null;
 
   // Стили раздела друзей
   const style = document.createElement("style");
@@ -437,7 +440,10 @@ if (
 
   // Загружаем друзей из Supabase
   async function refreshFriends() {
-    if (state.loading) return;
+    if (state.loading) {
+      state.refreshPending = true;
+      return;
+    }
 
     state.loading = true;
 
@@ -475,11 +481,13 @@ if (
         });
 
       if (error) throw error;
+      if (state.userId !== user.id) return;
 
       state.links = links || [];
 
       const ids = [...new Set(state.links.map(otherId))];
       state.profileById = await getPublicProfileNames(ids);
+      if (state.userId !== user.id) return;
 
       renderRequestsAndFriends();
       renderSearch();
@@ -495,8 +503,49 @@ if (
 
     } finally {
       state.loading = false;
+      if (state.refreshPending) {
+        state.refreshPending = false;
+        queueMicrotask(() => void refreshFriends());
+      }
     }
   }
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    const userId = session?.user?.id || null;
+    if (friendshipsChannelUserId === userId) return;
+    if (friendshipsChannel) void supabase.removeChannel(friendshipsChannel);
+    friendshipsChannel = null;
+    friendshipsChannelUserId = userId;
+    state.userId = userId;
+    state.links = [];
+    state.profileById.clear();
+    if (!userId) {
+      renderRequestsAndFriends();
+      resultsBox.replaceChildren();
+      return;
+    }
+
+    friendshipsChannel = supabase
+      .channel(`friendships-${userId}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "friendships"
+      }, (payload) => {
+        const row = payload.new || payload.old;
+        if (row?.requester_id === userId || row?.addressee_id === userId) {
+          void refreshFriends();
+        }
+      })
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          void refreshFriends();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("GadLink friendships Realtime:", error || status);
+          setStatus("Не удалось подключить обновление друзей. Данные обновятся при возвращении в раздел.");
+        }
+      });
+  });
 
   // Поиск пользователей
   searchForm.addEventListener("submit", async (event) => {
