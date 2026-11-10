@@ -24,6 +24,7 @@ export function createReelsFeed({ supabase, getUser }) {
   const cardsByPath = new Map();
   const mediaByCard = new WeakMap();
   const mediaUrls = new Map();
+  const publishPreviewUrls = [];
   let observer = null;
   let activeVideo = null;
   let activePath = null;
@@ -863,8 +864,39 @@ export function createReelsFeed({ supabase, getUser }) {
     return [...new Set(hashtags.map((tag) => tag.toLocaleLowerCase()))];
   }
 
+  function clearPublishPreviews() {
+    publishPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    publishPreviewUrls.length = 0;
+  }
+
+  const publishDropZone = publishDialog.querySelector(".reel-publish-files");
+  publishDropZone.addEventListener("dragenter", (event) => {
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    publishDropZone.classList.add("is-dragging");
+  });
+  publishDropZone.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    publishDropZone.classList.add("is-dragging");
+  });
+  publishDropZone.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget instanceof Node && publishDropZone.contains(event.relatedTarget)) return;
+    publishDropZone.classList.remove("is-dragging");
+  });
+  publishDropZone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    publishDropZone.classList.remove("is-dragging");
+    if (event.dataTransfer?.files.length) {
+      publishFiles.files = event.dataTransfer.files;
+      publishFiles.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
   publishFiles.addEventListener("change", () => {
     const files = [...publishFiles.files];
+    clearPublishPreviews();
     publishFileList.replaceChildren();
     document.getElementById("reel-publish-files-label").textContent = files.length
       ? `Выбрано файлов: ${files.length}`
@@ -878,7 +910,27 @@ export function createReelsFeed({ supabase, getUser }) {
       const item = document.createElement("li");
       const type = getUploadMediaType(file);
       const limit = type === "image" ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
-      item.textContent = `${file.name} · ${formatFileSize(file.size)}${!type ? " · неподдерживаемый формат" : file.size > limit ? " · превышен лимит размера" : ""}`;
+      if (type === "image") {
+        const previewUrl = URL.createObjectURL(file);
+        publishPreviewUrls.push(previewUrl);
+        const image = document.createElement("img");
+        image.src = previewUrl;
+        image.alt = file.name;
+        item.append(image);
+      } else {
+        const icon = document.createElement("span");
+        icon.className = "reel-publish-file-list__icon";
+        icon.textContent = type === "video" ? "▶" : "＋";
+        icon.setAttribute("aria-hidden", "true");
+        item.append(icon);
+      }
+      const name = document.createElement("span");
+      name.className = "reel-publish-file-list__name";
+      name.textContent = file.name;
+      const meta = document.createElement("span");
+      meta.className = "reel-publish-file-list__meta";
+      meta.textContent = `${formatFileSize(file.size)}${!type ? " · неподдерживаемый формат" : file.size > limit ? " · превышен лимит" : ""}`;
+      item.append(name, meta);
       publishFileList.append(item);
     }
     publishStatus.textContent = "";
@@ -978,6 +1030,7 @@ export function createReelsFeed({ supabase, getUser }) {
       observeCards();
       await activateCard(card);
       publishForm.reset();
+      clearPublishPreviews();
       publishFileList.replaceChildren();
       document.getElementById("reel-publish-files-label").textContent = "Файлы не выбраны";
       setPublishDialogOpen(false);
