@@ -326,8 +326,8 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       return;
     }
     if (getUser()?.id !== owner.id || requestId !== historyRequest) return;
-
     const calls = data || [];
+
     const peerIds = [...new Set(calls.map((call) =>
       call.caller_id === owner.id ? call.callee_id : call.caller_id
     ).filter(isUuid))];
@@ -419,7 +419,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   }
 
   async function getIceServers() {
-    const ownerId = userId();
+    const ownerId = getUser()?.id;
     const stunOnly = [{ urls: "stun:stun.l.google.com:19302" }];
     if (!ownerId) return stunOnly;
     if (iceServerCacheOwnerId === ownerId && Date.now() < iceServerCacheUntil) {
@@ -445,7 +445,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
           });
           if (!turnServers.length) throw new Error("Сервер не вернул TURN-конфигурацию.");
           const result = [...stunOnly, ...turnServers];
-          if (userId() === ownerId) {
+          if (getUser()?.id === ownerId) {
             iceServerCache = result;
             iceServerCacheOwnerId = ownerId;
             iceServerCacheUntil = Date.now() + ICE_SERVER_CACHE_MS;
@@ -453,7 +453,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
           return result;
         } catch (error) {
           console.warn("GadLink TURN configuration is unavailable; using STUN only.", error);
-          if (userId() === ownerId) {
+          if (getUser()?.id === ownerId) {
             iceServerCache = stunOnly;
             iceServerCacheOwnerId = ownerId;
             iceServerCacheUntil = Date.now() + ICE_CONFIG_RETRY_MS;
