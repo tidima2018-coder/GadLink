@@ -15,6 +15,15 @@ create table if not exists public.reel_saves (
   primary key (reel_path, user_id)
 );
 
+create table if not exists public.reel_reposts (
+  reel_path text not null check (length(reel_path) between 1 and 1024),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (reel_path, user_id)
+);
+create index if not exists reel_reposts_user_created_idx on public.reel_reposts (user_id, created_at desc);
+create index if not exists reel_reposts_path_created_idx on public.reel_reposts (reel_path, created_at desc);
+
 create table if not exists public.reel_comments (
   id uuid primary key default gen_random_uuid(),
   reel_path text not null check (length(reel_path) between 1 and 1024),
@@ -43,13 +52,15 @@ create index if not exists reel_posts_created_idx on public.reel_posts (created_
 
 alter table public.reel_likes enable row level security;
 alter table public.reel_saves enable row level security;
+alter table public.reel_reposts enable row level security;
 alter table public.reel_comments enable row level security;
 alter table public.reel_posts enable row level security;
 
 grant select, insert, delete on public.reel_likes to authenticated;
 grant select, insert, delete on public.reel_saves to authenticated;
-grant select, insert, delete on public.reel_comments to authenticated;
-grant select, insert on public.reel_posts to authenticated;
+grant select, insert, delete on public.reel_reposts to authenticated;
+grant select, insert, update, delete on public.reel_comments to authenticated;
+grant select, insert, update, delete on public.reel_posts to authenticated;
 
 drop policy if exists "gadlink reels list files" on storage.objects;
 create policy "gadlink reels list files" on storage.objects
@@ -76,6 +87,17 @@ create policy "users publish own reels" on public.reel_posts
       where split_part(uploaded_path.path, '/', 1) <> auth.uid()::text
     )
   );
+drop policy if exists "users edit own reel posts" on public.reel_posts;
+create policy "users edit own reel posts" on public.reel_posts
+  for update to authenticated using (user_id = auth.uid()) with check (
+    user_id = auth.uid() and not exists (
+      select 1 from unnest(media_paths) as uploaded_path(path)
+      where split_part(uploaded_path.path, '/', 1) <> auth.uid()::text
+    )
+  );
+drop policy if exists "users delete own reel posts" on public.reel_posts;
+create policy "users delete own reel posts" on public.reel_posts
+  for delete to authenticated using (user_id = auth.uid());
 drop policy if exists "authenticated users read reel likes" on public.reel_likes;
 create policy "authenticated users read reel likes" on public.reel_likes
   for select to authenticated using (true);
@@ -84,6 +106,16 @@ create policy "users add own reel likes" on public.reel_likes
   for insert to authenticated with check (user_id = auth.uid());
 drop policy if exists "users remove own reel likes" on public.reel_likes;
 create policy "users remove own reel likes" on public.reel_likes
+  for delete to authenticated using (user_id = auth.uid());
+
+drop policy if exists "authenticated users read reel reposts" on public.reel_reposts;
+create policy "authenticated users read reel reposts" on public.reel_reposts
+  for select to authenticated using (true);
+drop policy if exists "users add own reel reposts" on public.reel_reposts;
+create policy "users add own reel reposts" on public.reel_reposts
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "users remove own reel reposts" on public.reel_reposts;
+create policy "users remove own reel reposts" on public.reel_reposts
   for delete to authenticated using (user_id = auth.uid());
 
 drop policy if exists "users read own reel saves" on public.reel_saves;
@@ -105,3 +137,4 @@ create policy "users add own reel comments" on public.reel_comments
 drop policy if exists "users remove own reel comments" on public.reel_comments;
 create policy "users remove own reel comments" on public.reel_comments
   for delete to authenticated using (user_id = auth.uid());
+ё
