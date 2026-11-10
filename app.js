@@ -428,7 +428,6 @@ function updateConversationOverview(conversationId, overview = {}, incrementUnre
   const row = conversationOverviewRows.get(conversationId);
   if (row) {
     const preview = row.querySelector(".conversation-row__preview");
-    const time = row.querySelector(".conversation-row__time");
     const unread = row.querySelector(".conversation-row__unread");
     const lastMessage = overview.last_message;
     if (typeof lastMessage === "string" && lastMessage.length) {
@@ -437,25 +436,6 @@ function updateConversationOverview(conversationId, overview = {}, incrementUnre
     } else if (overview.last_message === null) {
       preview.textContent = "Нет сообщений";
       preview.hidden = false;
-    }
-
-    if (Object.hasOwn(overview, "last_message_at")) {
-      const lastMessageAt = overview.last_message_at;
-      const date = lastMessageAt ? new Date(lastMessageAt) : null;
-      if (date && Number.isFinite(date.getTime())) {
-        time.dateTime = date.toISOString();
-        time.textContent = formatConversationTime(date);
-        time.title = date.toLocaleString("ru-RU");
-        time.hidden = false;
-        row.dataset.lastMessageAt = date.toISOString();
-      } else {
-        time.textContent = "";
-        time.removeAttribute("datetime");
-        time.removeAttribute("title");
-        time.hidden = true;
-        delete row.dataset.lastMessageAt;
-      }
-      sortConversationRows();
     }
 
     const currentCount = conversationUnreadCounts.get(conversationId) || 0;
@@ -477,28 +457,6 @@ function updateConversationOverview(conversationId, overview = {}, incrementUnre
     );
   }
   updateUnreadBadge();
-}
-
-function formatConversationTime(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const now = new Date();
-  const isToday = date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-  return isToday
-    ? date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-}
-
-function sortConversationRows() {
-  const list = byId("conversation-list");
-  const rows = [...conversationOverviewRows.values()];
-  rows.sort((first, second) => {
-    const firstTime = Date.parse(first.dataset.lastMessageAt || "") || 0;
-    const secondTime = Date.parse(second.dataset.lastMessageAt || "") || 0;
-    return secondTime - firstTime;
-  });
-  for (const row of rows) list.append(row);
 }
 
 async function refreshConversationOverview() {
@@ -624,10 +582,6 @@ async function loadConversations() {
     item.dataset.type = conversation.is_group ? "group" : "personal";
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "conversation-row__button";
-    const isSelected = currentConversation?.id === conversation.id;
-    button.classList.toggle("is-active", isSelected);
-    button.setAttribute("aria-current", String(isSelected));
     const peers = conversationPeerIds
       .map((peerId) => namesByUserId.get(peerId)?.username || "Пользователь");
     const displayName = conversation.name || (peers.length ? peers.join(", ") : "Пользователь");
@@ -638,16 +592,13 @@ async function loadConversations() {
     const title = document.createElement("span");
     title.className = "conversation-row__title";
     title.textContent = displayName;
-    const time = document.createElement("time");
-    time.className = "conversation-row__time";
-    time.hidden = true;
     const preview = document.createElement("span");
     preview.className = "conversation-row__preview";
     preview.textContent = "Нет сообщений";
     const unread = document.createElement("span");
     unread.className = "conversation-row__unread";
     unread.hidden = true;
-    button.append(title, time, preview, unread);
+    button.append(title, preview, unread);
     item.dataset.conversationId = conversation.id;
     conversationsById.set(conversation.id, { ...conversation, name: displayName, peerProfile });
     conversationOverviewRows.set(conversation.id, item);
@@ -683,39 +634,6 @@ function applyConversationFilters() {
 
 function hasRenderedMessage(container, id) {
   return [...container.querySelectorAll("[data-message-id]")].some((item) => item.dataset.messageId === String(id));
-}
-
-function createMessageContent(value) {
-  const content = document.createElement("p");
-  content.className = "message-content";
-  const text = typeof value === "string" ? value : "";
-  const imageUrl = safeUrl(text.trim());
-  let imagePath = "";
-  if (imageUrl) {
-    try {
-      imagePath = new URL(imageUrl).pathname;
-    } catch {
-      imagePath = "";
-    }
-  }
-  if (!imagePath || !/\.(?:avif|gif|jpe?g|png|webp)$/i.test(imagePath)) {
-    content.textContent = text;
-    return content;
-  }
-
-  const link = document.createElement("a");
-  link.href = imageUrl;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  const image = document.createElement("img");
-  image.src = imageUrl;
-  image.alt = "Изображение в сообщении";
-  image.loading = "lazy";
-  image.decoding = "async";
-  image.referrerPolicy = "no-referrer";
-  link.append(image);
-  content.append(link);
-  return content;
 }
 
 function isUuid(value) {
@@ -795,7 +713,7 @@ function addMessage(container, message) {
     const currentAvatar = existing?.querySelector(".message-avatar");
     if (currentAvatar) updateAvatarElement(currentAvatar, profile, "message-avatar");
     const content = existing?.querySelector(".message-content");
-    if (content) content.replaceWith(createMessageContent(message.content));
+    if (content) content.textContent = message.content || "";
     return;
   }
   const item = document.createElement("article");
@@ -809,7 +727,7 @@ function addMessage(container, message) {
   bubble.className = "message-bubble";
   const author = addText(bubble, "strong", profile?.username || "Пользователь");
   author.className = "message-author";
-  bubble.append(createMessageContent(message.content));
+  addText(bubble, "p", message.content).className = "message-content";
   const time = document.createElement("time");
   const createdAt = message.created_at ? new Date(message.created_at) : new Date();
   time.dateTime = createdAt.toISOString();
@@ -845,13 +763,6 @@ async function openConversation(conversation) {
   callButton.setAttribute("aria-label", `Позвонить ${currentConversation.name || "контакту"}`);
   callButton.title = "Голосовой звонок";
   byId("chat-view").hidden = false;
-  byId("chats-section").classList.add("is-conversation-open");
-  for (const row of conversationOverviewRows.values()) {
-    const button = row.querySelector(".conversation-row__button");
-    const selected = row.dataset.conversationId === conversationId;
-    button?.classList.toggle("is-active", selected);
-    if (button) button.setAttribute("aria-current", String(selected));
-  }
   syncActivePushConversation();
   byId("chat-title").textContent = currentConversation.name || "Личный чат";
   byId("messages").replaceChildren();
@@ -876,10 +787,7 @@ async function openConversation(conversation) {
       message.profiles = namesById.get(message.user_id);
       addMessage(byId("messages"), message);
       updateMessageSyncCursor(conversationId, message.created_at);
-      updateConversationOverview(conversationId, {
-        last_message: message.content,
-        last_message_at: message.created_at
-      }, false);
+      updateConversationOverview(conversationId, { last_message: message.content }, false);
       if (message.user_id !== user?.id && !byId("chats-section").hidden &&
           !byId("chat-view").hidden &&
           document.visibilityState === "visible") {
@@ -910,20 +818,9 @@ async function openConversation(conversation) {
   if (isConversationVisible(conversationId)) {
     void markConversationRead(conversationId);
   }
-  const messages = byId("messages");
-  messages.scrollTop = messages.scrollHeight;
   byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
   return true;
 }
-
-byId("chat-back-button").addEventListener("click", () => {
-  byId("chat-view").hidden = true;
-  byId("chats-section").classList.remove("is-conversation-open");
-  syncActivePushConversation();
-  conversationOverviewRows.get(currentConversation?.id)
-    ?.querySelector(".conversation-row__button")
-    ?.focus();
-});
 
 function scheduleChatSync() {
   if (!user?.id) return;
@@ -989,8 +886,7 @@ function subscribeToChatOverview() {
       }
       const viewingConversation = isConversationVisible(message.conversation_id);
       updateConversationOverview(message.conversation_id, {
-        last_message: message.content,
-        last_message_at: message.created_at
+        last_message: message.content
       }, payload.eventType === "INSERT" &&
         message.user_id !== ownerId &&
         !viewingConversation);
@@ -2180,10 +2076,6 @@ byId("message-form").addEventListener("submit", async (event) => {
     }
     if (currentConversation?.id === conversationId) {
       addMessage(byId("messages"), savedMessage);
-      updateConversationOverview(conversationId, {
-        last_message: savedMessage.content,
-        last_message_at: savedMessage.created_at
-      });
       if (input.value.trim() === content) form.reset();
 
       if (content.startsWith("/ai ")) {
