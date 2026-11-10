@@ -71,12 +71,21 @@ if (
     }
 
     #friends-section .friend-avatar {
+      display: grid;
       width: 42px;
       height: 42px;
+      flex: 0 0 42px;
+      overflow: hidden;
       border-radius: 50%;
-      object-fit: cover;
+      place-items: center;
       background: #4d587b;
-      flex-shrink: 0;
+    }
+
+    #friends-section .friend-avatar__image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     #friends-section .friend-username {
@@ -163,8 +172,9 @@ if (
     const person = document.createElement("div");
     person.className = "friend-person";
 
-    const avatar = document.createElement("div");
+    const avatar = document.createElement("span");
     avatar.className = "friend-avatar";
+    avatar.setAttribute("aria-hidden", "true");
 
     if (
       profile?.avatar_url &&
@@ -172,15 +182,16 @@ if (
     ) {
       const image = document.createElement("img");
 
-      image.className = "friend-avatar";
+      image.className = "friend-avatar__image";
       image.alt = "";
       image.referrerPolicy = "no-referrer";
       image.src = profile.avatar_url;
 
-      person.append(image);
+      avatar.append(image);
     } else {
-      person.append(avatar);
+      avatar.textContent = (profile?.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU");
     }
+    person.append(avatar);
 
     const name = document.createElement("strong");
     name.className = "friend-username";
