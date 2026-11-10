@@ -1,4 +1,4 @@
-const CACHE_NAME = "gadlink-static-v15";
+const CACHE_NAME = "gadlink-static-v16";
 const APP_SHELL = [
   "./",
   "./index.html",
