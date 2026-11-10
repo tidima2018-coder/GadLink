@@ -70,45 +70,30 @@ if (
       gap: 12px;
     }
 
-    #friends-section .friend-avatar {
-<<<<<<< HEAD
-      position: relative;
-=======
->>>>>>> ai1
-      display: grid;
-      width: 42px;
-      height: 42px;
-      flex: 0 0 42px;
-<<<<<<< HEAD
-      place-items: center;
-      overflow: hidden;
-      border-radius: 50%;
-      background: #4d587b;
-      color: #f7e9ec;
-      font-size: 15px;
-      font-weight: 700;
-    }
+   #friends-section .friend-avatar {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #4d587b;
+  color: #f7e9ec;
+  font-size: 15px;
+  font-weight: 700;
+}
 
-    #friends-section .friend-avatar__image {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      border-radius: inherit;
-=======
-      overflow: hidden;
-      border-radius: 50%;
-      place-items: center;
-      background: #4d587b;
-    }
-
-    #friends-section .friend-avatar__image {
-      display: block;
-      width: 100%;
-      height: 100%;
->>>>>>> ai1
-      object-fit: cover;
-    }
+#friends-section .friend-avatar__image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
 
     #friends-section .friend-username {
       overflow-wrap: anywhere;
@@ -197,11 +182,10 @@ if (
     const avatar = document.createElement("span");
     avatar.className = "friend-avatar";
     avatar.setAttribute("aria-hidden", "true");
-<<<<<<< HEAD
-    avatar.textContent = (profile?.username || "Пользователь").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
-=======
->>>>>>> ai1
-
+    avatar.textContent = (profile?.username || "Пользователь")
+      .trim()
+      .slice(0, 1)
+      .toLocaleUpperCase("ru-RU") || "?";
     if (
       profile?.avatar_url &&
       /^https?:\/\//i.test(profile.avatar_url)
@@ -214,11 +198,6 @@ if (
       image.src = profile.avatar_url;
 image.addEventListener("error", () => image.remove(), { once: true });
 avatar.append(image);
-} else {
-  avatar.textContent = (profile?.username || "?")
-    .trim()
-    .slice(0, 1)
-    .toLocaleUpperCase();
     }
     person.append(avatar);
 
