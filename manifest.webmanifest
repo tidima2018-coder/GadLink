@@ -1,8 +1,9 @@
 {
   "id": "./",
-  "name": "GadLink — чаты и звонки",
+  "id": "./",
+  "name": "GadLink",
   "short_name": "GadLink",
-  "description": "Чаты, контакты и голосовые звонки",
+  "description": "Общайтесь с друзьями в GadLink",
   "lang": "ru",
   "start_url": "./",
   "scope": "./",
@@ -12,10 +13,22 @@
   "theme_color": "#19191c",
   "icons": [
     {
-      "src": "./assets/gadlink-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "./assets/gadlink-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/gadlink-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/gadlink-icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

@@ -118,7 +118,7 @@ async function sendToUser(userId: string, eventKey: string, payload: JsonRecord)
     const [eventRows, subscriptions] = await Promise.all([
       selectRows(`gadlink_push_event_log?${eventParams}`),
       selectRows(`push_subscriptions?${new URLSearchParams({
-        select: "endpoint,p256dh,auth,show_preview,active_conversation_id,is_visible,last_seen_at",
+        select: "endpoint,p256dh,auth,show_preview",
         user_id: `eq.${userId}`
       })}`)
     ]);
@@ -127,15 +127,7 @@ async function sendToUser(userId: string, eventKey: string, payload: JsonRecord)
         ? eventRows[0].delivered_endpoints.filter((endpoint): endpoint is string => typeof endpoint === "string")
         : []
     );
-    const targets = subscriptions.filter((row) => {
-      const lastSeen = typeof row.last_seen_at === "string" ? Date.parse(row.last_seen_at) : 0;
-      const visible = row.is_visible === true && Date.now() - lastSeen < 20_000;
-      if (!visible) return true;
-      if (payload.type !== "message") return false;
-      return row.active_conversation_id !== payload.conversationId;
-    });
-
-    for (const row of targets) {
+    for (const row of subscriptions) {
       const endpoint = row.endpoint;
       if (typeof endpoint !== "string") {
         console.error("Skipping push subscription with an invalid endpoint", userId);
@@ -156,7 +148,7 @@ async function sendToUser(userId: string, eventKey: string, payload: JsonRecord)
           ...payload,
           recipientId: userId,
           body: row.show_preview === true ? payload.previewBody : payload.body
-        }), { TTL: 60, urgency: payload.type === "message" ? "normal" : "high" });
+        }), { TTL: 86_400, urgency: payload.type === "message" ? "normal" : "high" });
         await markEndpointDelivered(eventKey, userId, endpoint);
         deliveredEndpoints.add(endpoint);
       } catch (error) {

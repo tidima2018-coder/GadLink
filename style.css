@@ -210,6 +210,25 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 #app > nav button::before { font-size: 21px; line-height: 1; }
 #app > nav button[data-section="reels-section"]::before { content: "▷"; }
 #app > nav .nav-icon { display: block; width: 25px; height: 25px; flex: 0 0 25px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+#app > nav [data-section="chats-section"] { position: relative; }
+#app > nav .nav-unread {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  place-items: center;
+  border: 2px solid #1f1e21;
+  border-radius: 999px;
+  color: #271619;
+  background: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+#app > nav .nav-unread[hidden] { display: none; }
 #reel-publish-open { color: #e5a0aa; }
 #reel-publish-open .nav-icon { width: 22px; height: 22px; }
 #reel-publish-open:hover:not(:disabled) { color: #ffd3d9; background: rgba(222,140,152,.1); }
@@ -1140,6 +1159,77 @@ main {
   font-size: 13px;
 }
 .notification-settings > button:disabled { opacity: .58; cursor: not-allowed; }
+.pwa-install-card {
+  width: min(100%, 440px);
+  margin: 0 auto 22px;
+  padding: 16px;
+  border: 1px solid rgba(222,140,152,.18);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(48,34,40,.92), rgba(27,25,29,.96));
+  box-shadow: 0 16px 42px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.035);
+}
+.pwa-install-card h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.pwa-install-card > div > p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pwa-install-card > .pwa-install-button {
+  width: 100%;
+  position: relative;
+  min-height: 48px;
+  border-color: rgba(239,163,173,.38);
+  color: #fff7f8;
+  background: linear-gradient(120deg, #a94e65, #d77f91 58%, #b86679);
+  box-shadow: 0 8px 22px rgba(190,91,114,.2), inset 0 1px rgba(255,255,255,.16);
+  font-size: 14px;
+  font-weight: 700;
+}
+.pwa-install-card > .pwa-install-button:hover:not(:disabled) {
+  background: linear-gradient(120deg, #b85b72, #e28b9d 58%, #c97386);
+  box-shadow: 0 10px 26px rgba(190,91,114,.3), inset 0 1px rgba(255,255,255,.2);
+}
+.pwa-install-status {
+  min-height: 0;
+  margin: 6px 0 0;
+  color: #c8a9af;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pwa-install-status:empty { display: none; }
+.pwa-install-guide {
+  margin: 8px 0 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(222,140,152,.16);
+  border-radius: 12px;
+  color: #d3cbd1;
+  background: rgba(222,140,152,.06);
+  font-size: 12px;
+}
+.push-delivery-status {
+  position: fixed;
+  z-index: 1000;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  width: fit-content;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 143, 143, .38);
+  border-radius: 14px;
+  color: #ffe4e4;
+  background: #48282dcc;
+  box-shadow: 0 12px 35px #0007;
+  font-size: 13px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.push-delivery-status[hidden] { display: none; }
 .push-preview-option {
   display: flex;
   align-items: flex-start;

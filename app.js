@@ -44,6 +44,9 @@ let currentAvatarUrl = null;
 let chatOverviewSubscription = null;
 const conversationOverviewRows = new Map();
 const conversationsById = new Map();
+const conversationUnreadCounts = new Map();
+let conversationOverviewRequestVersion = 0;
+let conversationOverviewRefreshTimer = null;
 
 const byId = (id) => document.getElementById(id);
 const voiceCallsController = createVoiceCallController({
@@ -319,36 +322,80 @@ async function loadPosts() {
   }
 }
 
+function updateUnreadBadge() {
+  const badge = byId("chat-unread-count");
+  const total = [...conversationUnreadCounts.values()]
+    .reduce((sum, count) => sum + count, 0);
+  badge.textContent = total > 99 ? "99+" : String(total);
+  badge.hidden = total < 1;
+  document.querySelector('[data-section="chats-section"]')
+    ?.setAttribute("aria-label", total ? `Чаты, непрочитанных сообщений: ${total}` : "Чаты");
+}
+
 function updateConversationOverview(conversationId, overview = {}, incrementUnread = false) {
   const row = conversationOverviewRows.get(conversationId);
-  if (!row) return;
-  const preview = row.querySelector(".conversation-row__preview");
-  const unread = row.querySelector(".conversation-row__unread");
-  const lastMessage = overview.last_message;
-  if (typeof lastMessage === "string" && lastMessage.length) {
-    preview.textContent = lastMessage;
-    preview.hidden = false;
-  } else if (overview.last_message === null) {
-    preview.textContent = "Нет сообщений";
-    preview.hidden = false;
+  if (row) {
+    const preview = row.querySelector(".conversation-row__preview");
+    const unread = row.querySelector(".conversation-row__unread");
+    const lastMessage = overview.last_message;
+    if (typeof lastMessage === "string" && lastMessage.length) {
+      preview.textContent = lastMessage;
+      preview.hidden = false;
+    } else if (overview.last_message === null) {
+      preview.textContent = "Нет сообщений";
+      preview.hidden = false;
+    }
+
+    const currentCount = conversationUnreadCounts.get(conversationId) || 0;
+    const nextCount = Object.hasOwn(overview, "unread_count")
+      ? Math.max(0, Number(overview.unread_count) || 0)
+      : incrementUnread ? currentCount + 1 : currentCount;
+    conversationUnreadCounts.set(conversationId, nextCount);
+    unread.textContent = nextCount > 99 ? "99+" : String(nextCount);
+    unread.hidden = nextCount < 1;
+  } else if (Object.hasOwn(overview, "unread_count")) {
+    conversationUnreadCounts.set(
+      conversationId,
+      Math.max(0, Number(overview.unread_count) || 0)
+    );
+  } else if (incrementUnread) {
+    conversationUnreadCounts.set(
+      conversationId,
+      (conversationUnreadCounts.get(conversationId) || 0) + 1
+    );
   }
-  const count = unread.textContent === "99+" ? 99 : Number(unread.textContent) || 0;
-  const nextCount = Object.hasOwn(overview, "unread_count")
-    ? Number(overview.unread_count) || 0
-    : incrementUnread ? count + 1 : count;
-  unread.textContent = nextCount > 99 ? "99+" : String(nextCount);
-  unread.hidden = nextCount < 1;
+  updateUnreadBadge();
 }
 
 async function refreshConversationOverview() {
   const ownerId = user?.id;
   if (!ownerId) return;
+  const requestVersion = ++conversationOverviewRequestVersion;
   const { data, error } = await supabase.rpc("gadlink_get_chat_overview");
   if (error) throw error;
-  if (user?.id !== ownerId) return;
+  if (user?.id !== ownerId || requestVersion !== conversationOverviewRequestVersion) return;
+  const currentConversationIds = new Set(
+    (data || []).map((overview) => overview.conversation_id)
+  );
+  for (const conversationId of conversationUnreadCounts.keys()) {
+    if (!currentConversationIds.has(conversationId)) {
+      conversationUnreadCounts.delete(conversationId);
+    }
+  }
   for (const overview of data || []) {
     updateConversationOverview(overview.conversation_id, overview);
   }
+  updateUnreadBadge();
+}
+
+function scheduleConversationOverviewRefresh() {
+  clearTimeout(conversationOverviewRefreshTimer);
+  conversationOverviewRefreshTimer = setTimeout(() => {
+    conversationOverviewRefreshTimer = null;
+    void refreshConversationOverview().catch((error) => {
+      console.error("GadLink scheduled chat overview refresh:", error);
+    });
+  }, 120);
 }
 
 async function markConversationRead(conversationId) {
@@ -361,14 +408,21 @@ async function markConversationRead(conversationId) {
     setStatus("chat-status", `Не удалось обновить отметку прочтения: ${error.message}`);
     return;
   }
+  conversationOverviewRequestVersion += 1;
   updateConversationOverview(conversationId, { unread_count: 0 });
 }
 
 function syncActivePushConversation() {
-  const chatIsVisible = !byId("chats-section").hidden &&
+  const chatIsVisible = isConversationVisible(currentConversation?.id);
+  pushController.setActiveConversation(chatIsVisible ? currentConversation?.id : null);
+}
+
+function isConversationVisible(conversationId) {
+  return Boolean(conversationId) &&
+    currentConversation?.id === conversationId &&
+    !byId("chats-section").hidden &&
     !byId("chat-view").hidden &&
     document.visibilityState === "visible";
-  pushController.setActiveConversation(chatIsVisible ? currentConversation?.id : null);
 }
 
 async function loadConversations() {
@@ -389,6 +443,8 @@ async function loadConversations() {
   list.replaceChildren();
   conversationOverviewRows.clear();
   conversationsById.clear();
+  conversationUnreadCounts.clear();
+  updateUnreadBadge();
   if (!ids.length) {
     directConversationByPeer.clear();
     applyConversationFilters();
@@ -645,7 +701,7 @@ async function openConversation(conversation) {
     setStatus("chat-status", `Не удалось загрузить историю чата: ${error.message}`);
     return false;
   }
-  if (!byId("chats-section").hidden && document.visibilityState === "visible") {
+  if (isConversationVisible(conversationId)) {
     void markConversationRead(conversationId);
   }
   byId("chat-view").scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -714,18 +770,16 @@ function subscribeToChatOverview() {
         }
         return;
       }
+      const viewingConversation = isConversationVisible(message.conversation_id);
       updateConversationOverview(message.conversation_id, {
         last_message: message.content
       }, payload.eventType === "INSERT" &&
         message.user_id !== ownerId &&
-        !(currentConversation?.id === message.conversation_id &&
-          !byId("chats-section").hidden &&
-          document.visibilityState === "visible"));
+        !viewingConversation);
+      if (payload.eventType === "INSERT") scheduleConversationOverviewRefresh();
       if (payload.eventType === "INSERT" &&
-          currentConversation?.id === message.conversation_id &&
-          !byId("chat-view").hidden &&
-          !byId("chats-section").hidden &&
-          document.visibilityState === "visible") {
+          message.user_id !== ownerId &&
+          viewingConversation) {
         void markConversationRead(message.conversation_id);
       }
     })
@@ -1130,6 +1184,10 @@ document.querySelectorAll("[data-section]").forEach((button) => {
     if (targetSection === "reels-section") reelsController?.activate();
     else reelsController?.deactivate();
     if (targetSection === "calls-section") void voiceCallsController.refreshHistory();
+    if (targetSection === "chats-section" &&
+        isConversationVisible(currentConversation?.id)) {
+      void markConversationRead(currentConversation.id);
+    }
     syncActivePushConversation();
     if (button.closest("#profile-menu")) setMenuOpen(false);
   });
@@ -1487,6 +1545,9 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     scheduleChatSync();
     syncActivePushConversation();
+    if (isConversationVisible(currentConversation?.id)) {
+      void markConversationRead(currentConversation.id);
+    }
   }
 });
 document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
@@ -2104,6 +2165,11 @@ supabase.auth.onAuthStateChange((_event, session) => {
     currentConversation = null;
     conversationsById.clear();
     conversationOverviewRows.clear();
+    conversationUnreadCounts.clear();
+    conversationOverviewRequestVersion += 1;
+    clearTimeout(conversationOverviewRefreshTimer);
+    conversationOverviewRefreshTimer = null;
+    updateUnreadBadge();
     byId("chat-call-button").hidden = true;
     byId("chat-call-button").dataset.userId = "";
     user = null;

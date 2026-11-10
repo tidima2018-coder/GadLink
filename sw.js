@@ -1,4 +1,4 @@
-const CACHE_NAME = "gadlink-static-v3";
+const CACHE_NAME = "gadlink-static-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -9,10 +9,17 @@ const APP_SHELL = [
   "./js/confirm.js",
   "./js/supabaseClient.js",
   "./js/push-notifications.js",
+  "./js/pwa-install.js",
+  "./js/friends-ui.js",
+  "./js/friends.js",
+  "./js/reels.js",
+  "./js/voice-calls.js",
   "./manifest.webmanifest",
-  "./assets/gadlink-icon.svg"
+  "./assets/gadlink-icon.svg",
+  "./assets/gadlink-icon-192.png",
+  "./assets/gadlink-icon-512.png",
+  "./assets/gadlink-icon-maskable-512.png"
 ];
-const clientStates = new Map();
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -38,13 +45,13 @@ self.addEventListener("fetch", (event) => {
       url.pathname.includes("/rest/") || url.pathname.includes("/auth/") ||
       url.pathname.includes("/storage/") || url.pathname.includes("/functions/")) return;
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(async () =>
+    event.respondWith(fetch(request, { cache: "no-cache" }).catch(async () =>
       (await caches.match("./index.html")) || Response.error()));
     return;
   }
   event.respondWith((async () => {
     try {
-      const response = await fetch(request);
+      const response = await fetch(request, { cache: "no-cache" });
       if (response.ok && response.type === "basic") {
         const cache = await caches.open(CACHE_NAME);
         await cache.put(request, response.clone());
@@ -58,28 +65,12 @@ self.addEventListener("fetch", (event) => {
   })());
 });
 
-async function getVisibleAppState() {
+async function reportPushFailure(message) {
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  const stateRequests = windows.filter((client) => client.visibilityState === "visible")
-    .map((client) => new Promise((resolve) => {
-      const channel = new MessageChannel();
-      const timeout = setTimeout(() => resolve(null), 300);
-      channel.port1.onmessage = ({ data }) => {
-        clearTimeout(timeout);
-        clientStates.set(client.id, data);
-        resolve(data);
-      };
-      client.postMessage({ type: "GADLINK_GET_STATE" }, [channel.port2]);
-    }));
-  const states = await Promise.all(stateRequests);
-  return states.filter(Boolean);
-}
-
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "GADLINK_STATE" && event.source?.id) {
-    clientStates.set(event.source.id, event.data.state);
+  for (const client of windows) {
+    client.postMessage({ type: "GADLINK_PUSH_ERROR", message });
   }
-});
+}
 
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
@@ -88,23 +79,19 @@ self.addEventListener("push", (event) => {
       payload = event.data?.json();
     } catch (error) {
       console.error("GadLink push payload is invalid:", error);
+      await reportPushFailure("Получено некорректное сообщение от сервера уведомлений.");
       return;
     }
-    if (!payload || !["message", "incoming_call", "missed_call"].includes(payload.type)) return;
-
-    const states = await getVisibleAppState();
-    if (payload.type === "message" && states.some((state) =>
-      state?.visible && state.userId === payload.recipientId &&
-      state.conversationId === payload.conversationId
-    )) return;
-    if (payload.type !== "message" && states.some((state) =>
-      state?.visible && state.userId === payload.recipientId
-    )) return;
+    if (!payload || !["message", "incoming_call", "missed_call"].includes(payload.type)) {
+      console.error("GadLink push payload has an unsupported notification type.");
+      await reportPushFailure("Сервер прислал уведомление неподдерживаемого типа.");
+      return;
+    }
 
     const options = {
       body: payload.body || "Откройте GadLink, чтобы посмотреть.",
-      icon: new URL("./assets/gadlink-icon.svg", self.registration.scope).href,
-      badge: new URL("./assets/gadlink-icon.svg", self.registration.scope).href,
+      icon: new URL("./assets/gadlink-icon-192.png", self.registration.scope).href,
+      badge: new URL("./assets/gadlink-icon-192.png", self.registration.scope).href,
       tag: payload.tag || `gadlink-${payload.type}-${payload.eventId || "event"}`,
       renotify: false,
       data: {
@@ -114,7 +101,21 @@ self.addEventListener("push", (event) => {
         url: payload.url || "./"
       }
     };
-    await self.registration.showNotification(payload.title || "GadLink", options);
+    try {
+      await self.registration.showNotification(payload.title || "GadLink", options);
+    } catch (error) {
+      console.error("GadLink could not display push notification:", error);
+      try {
+        await reportPushFailure(
+          error?.name === "NotAllowedError"
+            ? "Уведомления заблокированы в настройках браузера."
+            : (error instanceof Error ? error.message : "Проверьте разрешение на уведомления в браузере.")
+        );
+      } catch (reportError) {
+        console.error("GadLink could not report push notification error:", reportError);
+      }
+      throw error;
+    }
   })());
 });
 

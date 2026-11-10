@@ -4,15 +4,26 @@ function decodeVapidKey(value) {
   return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
 }
 
+function subscriptionUsesVapidKey(subscription, publicKey) {
+  const subscribedKey = subscription.options?.applicationServerKey;
+  if (!subscribedKey) return false;
+  const subscribedBytes = new Uint8Array(subscribedKey);
+  const currentBytes = decodeVapidKey(publicKey);
+  return subscribedBytes.length === currentBytes.length &&
+    subscribedBytes.every((value, index) => value === currentBytes[index]);
+}
+
 export function createPushNotifications({ supabase, getUser }) {
   const toggleButton = document.getElementById("push-toggle");
   const previewOption = document.getElementById("push-preview-option");
   const previewInput = document.getElementById("push-show-preview");
   const statusBox = document.getElementById("push-status");
+  const deliveryStatusBox = document.getElementById("push-delivery-status");
   const installButton = document.getElementById("pwa-install");
   const installStatus = document.getElementById("pwa-install-status");
   let registration = null;
   let endpoint = null;
+  let subscriptionNeedsRefresh = false;
   let initializedUserId = null;
   let activeConversationId = null;
   let lastPresenceState = "";
@@ -20,6 +31,7 @@ export function createPushNotifications({ supabase, getUser }) {
   let presenceUpdatePending = false;
   let presenceTimer = null;
   let deferredInstallPrompt = null;
+  let deliveryStatusTimer = null;
 
   function setStatus(message) {
     statusBox.textContent = message;
@@ -32,11 +44,6 @@ export function createPushNotifications({ supabase, getUser }) {
       conversationId: activeConversationId,
       visible
     };
-    if (!registration?.active) return;
-    registration.active.postMessage({
-      type: "GADLINK_STATE",
-      state
-    });
     const owner = getUser();
     const signature = `${owner?.id || ""}:${state.conversationId || ""}:${visible}`;
     if (!owner?.id || !endpoint || presenceUpdatePending ||
@@ -66,7 +73,9 @@ export function createPushNotifications({ supabase, getUser }) {
   function updateControls(enabled) {
     const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     toggleButton.disabled = !supported || !getUser()?.id;
-    toggleButton.textContent = enabled ? "Отключить на этом устройстве" : "Включить уведомления";
+    toggleButton.textContent = enabled
+      ? subscriptionNeedsRefresh ? "Обновить Push-подписку" : "Отключить на этом устройстве"
+      : "Включить уведомления";
     previewOption.hidden = !enabled;
     if (!supported) {
       const isAppleMobile = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -88,6 +97,7 @@ export function createPushNotifications({ supabase, getUser }) {
     const currentEndpoint = subscription?.endpoint || null;
     if (!currentEndpoint) {
       endpoint = null;
+      subscriptionNeedsRefresh = false;
       previewInput.checked = false;
       updateControls(false);
       return;
@@ -100,17 +110,46 @@ export function createPushNotifications({ supabase, getUser }) {
       .maybeSingle();
     if (error) throw error;
     endpoint = data ? currentEndpoint : null;
+    subscriptionNeedsRefresh = false;
     previewInput.checked = Boolean(data?.show_preview);
+    if (data && Notification.permission === "granted") {
+      try {
+        subscriptionNeedsRefresh = !subscriptionUsesVapidKey(
+          subscription,
+          await getVapidPublicKey()
+        );
+      } catch (keyError) {
+        subscriptionNeedsRefresh = true;
+        setStatus(`Не удалось проверить актуальность VAPID-ключа Push: ${keyError.message}`);
+      }
+    }
     updateControls(Boolean(data));
-    if (data) setStatus("Push-уведомления включены на этом устройстве. Подписку можно отключить кнопкой.");
+    if (data && subscriptionNeedsRefresh) {
+      setStatus("Push-подписка использует устаревший или непроверенный VAPID-ключ. Нажмите «Обновить Push-подписку».");
+    } else if (data && Notification.permission === "granted") {
+      setStatus("Push включены в этом браузере для текущего аккаунта. Подписку можно отключить кнопкой.");
+    } else if (data) {
+      setStatus(Notification.permission === "denied"
+        ? "Уведомления заблокированы. Разрешите их для GadLink в настройках браузера."
+        : "Подписка найдена, но разрешение ещё не выдано. Разрешите уведомления в браузере.");
+    }
     postState();
   }
 
   async function getVapidPublicKey() {
     const { data, error } = await supabase.functions.invoke("push-config", { method: "GET" });
     if (error) throw new Error(`Не удалось получить ключ Push: ${error.message}`);
-    if (typeof data?.vapidPublicKey !== "string" || data.vapidPublicKey.length < 40) {
+    if (typeof data?.vapidPublicKey !== "string") {
       throw new Error("Сервер не настроен: отсутствует VAPID public key.");
+    }
+    let decodedKey;
+    try {
+      decodedKey = decodeVapidKey(data.vapidPublicKey);
+    } catch {
+      throw new Error("Сервер вернул некорректный VAPID public key.");
+    }
+    if (decodedKey.length !== 65 || decodedKey[0] !== 4) {
+      throw new Error("Сервер вернул некорректный VAPID public key.");
     }
     return data.vapidPublicKey;
   }
@@ -137,21 +176,43 @@ export function createPushNotifications({ supabase, getUser }) {
       throw new Error("Аккаунт изменился. Войдите снова и включите уведомления.");
     }
 
-    registration ||= await navigator.serviceWorker.register(
+    await navigator.serviceWorker.register(
       new URL("../sw.js", import.meta.url),
       { scope: new URL("../", import.meta.url).pathname, updateViaCache: "none" }
     );
-    await navigator.serviceWorker.ready;
+    registration = await navigator.serviceWorker.ready;
+    if (!registration.active) {
+      throw new Error("Service Worker ещё не активен. Обновите страницу и попробуйте снова.");
+    }
     const vapidPublicKey = await getVapidPublicKey();
     if (getUser()?.id !== owner.id) {
       throw new Error("Аккаунт изменился. Войдите снова и включите уведомления.");
     }
     let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !subscriptionUsesVapidKey(subscription, vapidPublicKey)) {
+      const { error: deleteError } = await supabase.from("push_subscriptions")
+        .delete()
+        .eq("endpoint", subscription.endpoint)
+        .eq("user_id", owner.id);
+      if (deleteError) {
+        throw new Error(`Не удалось обновить старую Push-подписку: ${deleteError.message}`);
+      }
+      const unsubscribed = await subscription.unsubscribe();
+      if (!unsubscribed) {
+        throw new Error("Не удалось отключить старую Push-подписку. Отключите её в настройках браузера и попробуйте снова.");
+      }
+      subscription = null;
+      endpoint = null;
+    }
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: decodeVapidKey(vapidPublicKey)
       });
+    }
+    if (getUser()?.id !== owner.id) {
+      await subscription.unsubscribe();
+      throw new Error("Аккаунт изменился. Войдите снова и включите уведомления.");
     }
 
     const json = subscription.toJSON();
@@ -167,13 +228,17 @@ export function createPushNotifications({ supabase, getUser }) {
     }, { onConflict: "endpoint" });
     if (error) {
       await subscription.unsubscribe();
+      if (error.code === "23505" || error.message?.toLowerCase().includes("duplicate key")) {
+        throw new Error("Эта подписка ещё привязана к другому аккаунту. Подписку браузера отключили; нажмите «Включить уведомления» ещё раз.");
+      }
       throw new Error(`Не удалось сохранить Push-подписку: ${error.message}`);
     }
     endpoint = json.endpoint;
+    subscriptionNeedsRefresh = false;
     updateControls(true);
     lastPresenceState = "";
     postState();
-    setStatus("Уведомления включены на этом устройстве.");
+    setStatus("Push включены в этом браузере для текущего аккаунта.");
   }
 
   async function disable() {
@@ -198,6 +263,7 @@ export function createPushNotifications({ supabase, getUser }) {
       }
     }
     endpoint = null;
+    subscriptionNeedsRefresh = false;
     previewInput.checked = false;
     updateControls(false);
     if (deleteError || unsubscribeError) {
@@ -230,14 +296,23 @@ export function createPushNotifications({ supabase, getUser }) {
       return;
     }
     if (initializedUserId !== owner.id) {
-      initializedUserId = owner.id;
       endpoint = null;
-      registration = await navigator.serviceWorker.register(
+      subscriptionNeedsRefresh = false;
+      await navigator.serviceWorker.register(
         new URL("../sw.js", import.meta.url),
         { scope: new URL("../", import.meta.url).pathname, updateViaCache: "none" }
       );
-      await navigator.serviceWorker.ready;
-      await registration.update();
+      registration = await navigator.serviceWorker.ready;
+      if (!registration.active) {
+        throw new Error("Service Worker не активировался. Обновите страницу и попробуйте снова.");
+      }
+      initializedUserId = owner.id;
+      try {
+        await registration.update();
+      } catch (error) {
+        console.warn("GadLink could not check for a Service Worker update:", error);
+        setStatus(`Не удалось проверить обновление Service Worker: ${error.message}`);
+      }
       clearInterval(presenceTimer);
       presenceTimer = setInterval(() => {
         if (document.visibilityState === "visible") postState();
@@ -260,27 +335,39 @@ export function createPushNotifications({ supabase, getUser }) {
 
   async function shutdown() {
     postState(true);
+    let cleanupError = null;
     try {
-      if (registration) {
-        const subscription = await registration.pushManager?.getSubscription();
-        if (subscription) {
-          const unsubscribed = await subscription.unsubscribe();
-          if (!unsubscribed) console.warn("GadLink could not unsubscribe the current push device during sign-out.");
+      const owner = getUser();
+      const subscription = await getCurrentSubscription();
+      const currentEndpoint = subscription?.endpoint || endpoint;
+      if (currentEndpoint && owner?.id) {
+        const { error } = await supabase.from("push_subscriptions")
+          .delete()
+          .eq("endpoint", currentEndpoint)
+          .eq("user_id", owner.id);
+        if (error) cleanupError = error;
+      }
+      if (subscription) {
+        const unsubscribed = await subscription.unsubscribe();
+        if (!unsubscribed) {
+          cleanupError ||= new Error("Браузер не смог отключить Push-подписку.");
         }
       }
     } catch (error) {
-      console.error("GadLink push sign-out unsubscribe:", error);
+      cleanupError ||= error;
     } finally {
       initializedUserId = null;
       clearInterval(presenceTimer);
       presenceTimer = null;
       endpoint = null;
+      subscriptionNeedsRefresh = false;
       activeConversationId = null;
       registration = null;
       lastPresenceState = "";
       lastPresenceAt = 0;
       updateControls(false);
     }
+    if (cleanupError) throw new Error(`Не удалось полностью отключить Push-подписку: ${cleanupError.message}`);
   }
 
   function setActiveConversation(conversationId) {
@@ -291,7 +378,7 @@ export function createPushNotifications({ supabase, getUser }) {
   toggleButton.addEventListener("click", async () => {
     toggleButton.disabled = true;
     try {
-      if (endpoint) await disable();
+      if (endpoint && !subscriptionNeedsRefresh) await disable();
       else {
         setStatus("Запрашиваем разрешение и подключаем уведомления…");
         await enable();
@@ -337,12 +424,16 @@ export function createPushNotifications({ supabase, getUser }) {
     });
   });
   navigator.serviceWorker?.addEventListener("message", (event) => {
-    if (event.data?.type === "GADLINK_GET_STATE") {
-      event.ports[0]?.postMessage({
-        userId: getUser()?.id || null,
-        conversationId: activeConversationId,
-        visible: document.visibilityState === "visible"
-      });
+    if (event.data?.type === "GADLINK_PUSH_ERROR") {
+      const message = `Браузер не показал Push-уведомление: ${event.data.message || "неизвестная ошибка"}`;
+      setStatus(message);
+      deliveryStatusBox.textContent = message;
+      deliveryStatusBox.hidden = false;
+      clearTimeout(deliveryStatusTimer);
+      deliveryStatusTimer = setTimeout(() => {
+        deliveryStatusBox.hidden = true;
+        deliveryStatusTimer = null;
+      }, 10_000);
     }
   });
   document.addEventListener("visibilitychange", () => postState());

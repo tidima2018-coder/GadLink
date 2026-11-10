@@ -7,9 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GadLink">
+  <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./assets/gadlink-icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="./assets/gadlink-icon.svg">
+  <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png">
   <title>GadLink</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -72,6 +73,16 @@
       <button id="resend-confirmation" type="button" hidden>отправить письмо повторно</button>
     </section>
 
+    <section class="pwa-install-card" aria-labelledby="pwa-install-title">
+      <div>
+        <h2 id="pwa-install-title">GadLink на этом устройстве</h2>
+        <p>Установите приложение для быстрого и удобного доступа к чатам.</p>
+      </div>
+      <button id="pwa-install" class="pwa-install-button" type="button" hidden>Установить GadLink</button>
+      <p id="pwa-install-status" class="pwa-install-status" role="status"></p>
+      <p id="pwa-install-guide" class="pwa-install-guide" role="note" hidden></p>
+    </section>
+
     <div id="app" hidden>
       <nav aria-label="разделы">
         <button id="menu-toggle" type="button" aria-label="Открыть настройки" aria-expanded="false" aria-controls="profile-menu" hidden>
@@ -82,6 +93,7 @@
         <button type="button" data-section="chats-section" aria-label="Чаты">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.5-.8L4 20l1.7-4.2A7.3 7.3 0 0 1 5 12a7.5 7.5 0 0 1 15 0Z"/><path d="M8 5.2A7.5 7.5 0 0 1 21 11"/></svg>
           <span>Чаты</span>
+          <span id="chat-unread-count" class="nav-unread" aria-live="polite" hidden></span>
         </button>
         <button type="button" data-section="reels-section">Reels</button>
         <button id="reel-publish-open" type="button" aria-label="Опубликовать видео или фото">
@@ -105,6 +117,7 @@
           <span>Настройки</span>
         </button>
       </nav>
+      <p id="push-delivery-status" class="push-delivery-status" role="alert" aria-live="assertive" hidden></p>
       <section id="profile-section" class="page-section" hidden>
         <h2>профиль</h2>
         <form id="profile-form">
@@ -196,8 +209,6 @@
           <h3 id="notification-settings-title">Push-уведомления</h3>
           <p>Нажмите «Включить уведомления» и разрешите их в браузере. Для Push нужен HTTPS; на iPhone/iPad установите GadLink на экран «Домой» (iOS/iPadOS 16.4+).</p>
           <button id="push-toggle" type="button">Включить уведомления</button>
-          <button id="pwa-install" type="button" hidden>Установить GadLink</button>
-          <p id="pwa-install-status" class="profile-menu__status" role="status"></p>
           <label id="push-preview-option" class="push-preview-option" hidden>
             <input id="push-show-preview" type="checkbox">
             Показывать текст сообщений в уведомлениях
@@ -522,6 +533,7 @@
     </section>
   </div>
 
+  <script type="module" src="js/pwa-install.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
