@@ -18,6 +18,7 @@ let user = null;
 let currentConversation = null;
 let currentUsername = "Пользователь";
 let currentChannel = null;
+let currentServer = null;
 let chatSubscription = null;
 let conversationMembershipSubscription = null;
 let channelSubscription = null;
@@ -35,6 +36,9 @@ let menuAnimationFrame = null;
 let friendDialogCloseTimer = null;
 let groupDialogCloseTimer = null;
 let avatarPreviewUrl = null;
+let communityDialogOpener = null;
+let serverPhotoPreviewUrl = null;
+const communityDialogCloseTimers = new Map();
 let currentAbout = "";
 let currentAvatarUrl = null;
 let chatOverviewSubscription = null;
@@ -64,7 +68,7 @@ function setMenuOpen(isOpen, restoreFocus = true) {
   if (menuAnimationFrame !== null) cancelAnimationFrame(menuAnimationFrame);
   menuAnimationFrame = null;
   toggle.setAttribute("aria-expanded", String(isOpen));
-  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню профиля" : "Открыть меню профиля");
+  toggle.setAttribute("aria-label", isOpen ? "Закрыть настройки" : "Открыть настройки");
   toggle.classList.toggle("is-open", isOpen);
 
   if (isOpen) {
@@ -776,6 +780,7 @@ window.addEventListener("gadlink:open-contact-chat", (event) => {
   void openContactChat(event.detail || {});
 });
 
+<<<<<<< HEAD
 byId("chat-call-button").addEventListener("click", (event) => {
   const peerId = event.currentTarget.dataset.userId;
   if (!isUuid(peerId) || peerId === user?.id) {
@@ -790,55 +795,190 @@ byId("chat-call-button").addEventListener("click", (event) => {
 async function loadServers() {
   const { data, error } = await supabase.from("servers").select("id,name").order("name");
   if (error) throw error;
+=======
+function updateCommunityEmptyState(hasServers) {
+  const empty = byId("community-empty");
+  empty.classList.toggle("community-empty--no-servers", !hasServers);
+  empty.hidden = Boolean(currentServer && hasServers);
+  empty.querySelector("h3").textContent = hasServers ? "Выберите сервер" : "У вас пока нет серверов";
+  empty.querySelector("p").textContent = hasServers
+    ? "Выберите сервер из списка, чтобы открыть его каналы."
+    : "Создайте своё пространство или присоединитесь к серверу по ссылке-приглашению.";
+  empty.querySelectorAll("[data-community-action]").forEach((button) => { button.hidden = hasServers; });
+}
+>>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
 
+async function loadServers() {
   const list = byId("server-list");
-  list.replaceChildren();
-  for (const server of data || []) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = server.name;
-    button.addEventListener("click", () => openServer(server));
-    item.append(button);
-    list.append(item);
+  try {
+    const { data, error } = await supabase.from("servers")
+      .select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by")
+      .order("name");
+    if (error) throw error;
+    const { data: memberships, error: membershipsError } = await supabase.from("server_members")
+      .select("server_id")
+      .eq("user_id", user.id);
+    if (membershipsError) throw membershipsError;
+    const memberServerIds = new Set((memberships || []).map((membership) => membership.server_id));
+    const servers = (data || []).filter((server) => memberServerIds.has(server.id) || server.created_by === user.id);
+
+    list.replaceChildren();
+    for (const server of servers) {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "server-list-button";
+      button.dataset.serverId = server.id;
+      button.setAttribute("aria-current", String(currentServer?.id === server.id));
+      const avatar = document.createElement("span");
+      avatar.className = "server-list-avatar";
+      if (server.avatar_path) {
+        const image = document.createElement("img");
+        image.src = supabase.storage.from("server-avatars").getPublicUrl(server.avatar_path).data.publicUrl;
+        image.alt = "";
+        avatar.append(image);
+      } else {
+        avatar.textContent = server.name.trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "С";
+      }
+      const copy = document.createElement("span");
+      copy.className = "server-list-copy";
+      const name = document.createElement("strong");
+      name.textContent = server.name;
+      const description = document.createElement("small");
+      description.textContent = server.is_private ? "Приватный сервер" : (server.description || "Сервер");
+      const arrow = document.createElement("span");
+      arrow.className = "server-list-arrow";
+      arrow.setAttribute("aria-hidden", "true");
+      arrow.textContent = "›";
+      copy.append(name, description);
+      button.append(avatar, copy, arrow);
+      button.addEventListener("click", () => openServer(server));
+      item.append(button);
+      list.append(item);
+    }
+
+    byId("server-view").hidden = !currentServer || !servers.some((server) => server.id === currentServer.id);
+    if (!servers.some((server) => server.id === currentServer?.id)) {
+      currentServer = null;
+      currentChannel = null;
+      byId("communities-section").classList.remove("is-detail-open", "is-channel-open");
+    }
+    updateCommunityEmptyState(Boolean(servers.length));
+    if (!servers.length) setStatus("community-status", "");
+  } catch (error) {
+    console.error("GadLink servers load:", error);
+    setStatus("community-status", `Не удалось загрузить серверы: ${error.message}. Проверьте схему из supabase/community_setup.sql.`);
   }
 }
 
 async function openServer(server) {
+  currentServer = server;
+  currentChannel = null;
+  if (channelSubscription) await supabase.removeChannel(channelSubscription);
+  channelSubscription = null;
+  updateCommunityEmptyState(true);
   byId("server-view").hidden = false;
+  byId("communities-section").classList.add("is-detail-open");
+  byId("communities-section").classList.remove("is-channel-open");
   byId("server-title").textContent = server.name;
+  byId("server-description").textContent = server.description || "";
+  byId("server-description").hidden = !server.description;
+  byId("server-meta").textContent = `${server.is_private ? "Приватный сервер" : "Открытый сервер"} · ${({ friends: "Для друзей", community: "Для сообщества", study: "Для учёбы", work: "Для работы" })[server.server_type] || "Сервер"}`;
+  const serverAvatar = byId("server-avatar");
+  serverAvatar.replaceChildren();
+  if (server.avatar_path) {
+    const avatar = document.createElement("img");
+    avatar.src = supabase.storage.from("server-avatars").getPublicUrl(server.avatar_path).data.publicUrl;
+    avatar.alt = "";
+    serverAvatar.append(avatar);
+  } else {
+    serverAvatar.textContent = server.name.trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "С";
+  }
+  byId("server-invite").hidden = server.created_by !== user?.id || !server.invite_code;
   byId("channel-view").hidden = true;
-  const { data, error } = await supabase
-    .from("text_channels")
-    .select("id,name")
+  byId("channel-voice-empty").hidden = true;
+  byId("channel-readonly-note").hidden = true;
+  byId("channel-message-form").hidden = false;
+  byId("channel-form").dataset.serverId = server.id;
+  byId("channel-list").replaceChildren();
+  byId("channel-empty").hidden = true;
+  const { data, error } = await supabase.from("text_channels")
+    .select("id,name,channel_type,category,is_private,created_by")
     .eq("server_id", server.id)
     .order("name");
   if (error) {
-    setStatus("community-status", error.message);
+    setStatus("community-status", `Не удалось загрузить каналы: ${error.message}`);
     return;
   }
 
   const list = byId("channel-list");
   list.replaceChildren();
+  const categories = new Map();
   for (const channel of data || []) {
+    const categoryName = channel.category?.trim() || "Без категории";
+    let categoryList = categories.get(categoryName);
+    if (!categoryList) {
+      const categoryItem = document.createElement("li");
+      categoryItem.className = "channel-category";
+      const heading = document.createElement("h5");
+      heading.textContent = categoryName;
+      categoryList = document.createElement("ul");
+      categoryList.className = "channel-category-list";
+      categoryItem.append(heading, categoryList);
+      list.append(categoryItem);
+      categories.set(categoryName, categoryList);
+    }
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = channel.name;
+    button.className = "channel-list-button";
+    const icon = document.createElement("span");
+    icon.className = `channel-list-icon channel-list-icon--${channel.channel_type || "text"}`;
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = channel.channel_type === "voice" ? "◖" : channel.channel_type === "announcement" ? "▤" : "#";
+    const copy = document.createElement("span");
+    copy.className = "channel-list-copy";
+    const name = document.createElement("strong");
+    name.textContent = channel.name;
+    const description = document.createElement("small");
+    description.textContent = [channel.category, channel.is_private ? "Приватный" : ""].filter(Boolean).join(" · ") || (channel.channel_type === "voice" ? "Голосовой канал" : channel.channel_type === "announcement" ? "Объявления" : "Текстовый канал");
+    copy.append(name, description);
+    const arrow = document.createElement("span");
+    arrow.className = "server-list-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "›";
+    button.append(icon, copy, arrow);
     button.addEventListener("click", () => openChannel(channel));
     item.append(button);
-    list.append(item);
+    categoryList.append(item);
   }
-  byId("channel-form").dataset.serverId = server.id;
+  byId("channel-empty").hidden = Boolean(data?.length);
+  byId("server-meta").textContent += ` · ${data?.length || 0} ${data?.length === 1 ? "канал" : "каналов"}`;
+  document.querySelectorAll("#server-list .server-list-button").forEach((button) => {
+    button.setAttribute("aria-current", String(button.dataset.serverId === server.id));
+  });
+  setStatus("community-status", "");
 }
 
 async function openChannel(channel) {
   currentChannel = channel;
   byId("channel-view").hidden = false;
   byId("channel-title").textContent = channel.name;
+  byId("channel-description").textContent = [channel.category, channel.is_private ? "Приватный канал" : ""].filter(Boolean).join(" · ");
+  byId("communities-section").classList.add("is-channel-open");
   byId("channel-messages").replaceChildren();
 
   if (channelSubscription) await supabase.removeChannel(channelSubscription);
+  channelSubscription = null;
+  const isVoice = channel.channel_type === "voice";
+  const isReadOnlyAnnouncement = channel.channel_type === "announcement" && currentServer?.created_by !== user?.id;
+  byId("channel-voice-empty").hidden = !isVoice;
+  byId("channel-readonly-note").hidden = isVoice || !isReadOnlyAnnouncement;
+  byId("channel-message-form").hidden = isVoice || isReadOnlyAnnouncement;
+  if (isVoice) {
+    setStatus("community-status", "");
+    return;
+  }
   const { data, error } = await supabase
     .from("channel_messages")
     .select("id,user_id,content,created_at")
@@ -921,6 +1061,29 @@ async function loadApp() {
       setStatus("push-status", `Не удалось подготовить уведомления: ${error.message}`);
     })
   ]);
+  const inviteToken = new URLSearchParams(window.location.search).get("server");
+  if (inviteToken) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("server");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    try {
+      const { data: serverId, error } = await supabase.rpc("gadlink_join_server", { invite_token: inviteToken });
+      if (error) throw error;
+      await loadServers();
+      const { data: server, error: serverError } = await supabase.from("servers")
+        .select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by")
+        .eq("id", serverId)
+        .single();
+      if (serverError) throw serverError;
+      document.querySelector('[data-section="communities-section"]')?.click();
+      await openServer(server);
+      setStatus("community-status", `Вы присоединились к серверу «${server.name}».`);
+    } catch (error) {
+      console.error("GadLink invite link:", error);
+      document.querySelector('[data-section="communities-section"]')?.click();
+      setStatus("community-status", `Не удалось присоединиться по ссылке: ${error.message}`);
+    }
+  }
   subscribeToConversationMemberships();
   subscribeToChatOverview();
   if (!feedPostsChannel) {
@@ -961,30 +1124,178 @@ document.querySelectorAll("[data-section]").forEach((button) => {
 });
 
 function showCommunitiesForChannelCreation() {
-  document.querySelectorAll(".page-section").forEach((section) => {
-    section.hidden = section.id !== "communities-section";
-  });
-  document.querySelectorAll("[data-section]").forEach((item) => item.classList.remove("is-active"));
-  reelsController?.deactivate();
-
-  if (!byId("server-view").hidden && byId("channel-form").dataset.serverId) {
-    setStatus("community-status", "Введите название канала для выбранного сервера.");
-    byId("channel-name").focus();
+  document.querySelector('[data-section="communities-section"]')?.click();
+  if (!currentServer) {
+    setStatus("community-status", "Сначала выберите сервер, в котором нужно создать канал.");
+    byId("server-list").querySelector("button")?.focus();
     return;
   }
+  openCommunityDialog("channel-create-dialog", byId("channel-create-open"));
+}
 
-  const firstServer = byId("server-list").querySelector("button");
-  if (firstServer) {
-    setStatus("community-status", "Выберите сервер, в котором нужно создать канал.");
-    firstServer.focus();
-  } else {
-    setStatus("community-status", "Сначала создайте сервер, затем добавьте в него канал.");
-    byId("server-name").focus();
-  }
+function openCommunityDialog(id, opener = document.activeElement) {
+  const dialog = byId(id);
+  clearTimeout(communityDialogCloseTimers.get(id));
+  communityDialogCloseTimers.delete(id);
+  const trigger = opener instanceof HTMLElement ? opener : null;
+  communityDialogOpener = trigger?.closest("[hidden]") ? byId("community-add-open") : trigger;
+  document.body.classList.add("community-dialog-open");
+  dialog.hidden = false;
+  dialog.removeAttribute("inert");
+  requestAnimationFrame(() => dialog.classList.add("is-open"));
+  dialog.querySelector("input:not([type=hidden]):not([type=file]), button:not([data-dialog-close]), select")?.focus();
+}
+
+function closeCommunityDialog(id, restoreFocus = true) {
+  const dialog = byId(id);
+  clearTimeout(communityDialogCloseTimers.get(id));
+  dialog.classList.remove("is-open");
+  dialog.setAttribute("inert", "");
+  const timer = setTimeout(() => {
+    dialog.hidden = true;
+    dialog.removeAttribute("inert");
+    communityDialogCloseTimers.delete(id);
+    if (![...document.querySelectorAll(".community-dialog")].some((item) => !item.hidden)) {
+      document.body.classList.remove("community-dialog-open");
+    }
+  }, 200);
+  communityDialogCloseTimers.set(id, timer);
+  if (restoreFocus && communityDialogOpener?.isConnected) communityDialogOpener.focus();
+  communityDialogOpener = null;
+}
+
+function normalizeChannelName(value) {
+  return value.trim().toLocaleLowerCase("ru-RU").replace(/\s+/g, "-").replace(/-+/g, "-");
+}
+
+function setServerPhotoPreview(file) {
+  const preview = byId("server-avatar-preview");
+  if (serverPhotoPreviewUrl) URL.revokeObjectURL(serverPhotoPreviewUrl);
+  serverPhotoPreviewUrl = null;
+  preview.replaceChildren();
+  preview.textContent = "▧";
+  if (!file) return;
+  serverPhotoPreviewUrl = URL.createObjectURL(file);
+  const image = document.createElement("img");
+  image.src = serverPhotoPreviewUrl;
+  image.alt = "";
+  preview.replaceChildren(image);
 }
 
 byId("menu-toggle").addEventListener("click", () => {
   setMenuOpen(byId("menu-toggle").getAttribute("aria-expanded") !== "true");
+});
+byId("community-add-open").addEventListener("click", () => {
+  const menu = byId("community-add-menu");
+  const open = menu.hidden;
+  menu.hidden = !open;
+  byId("community-add-open").setAttribute("aria-expanded", String(open));
+  if (open) menu.querySelector('[role="menuitem"]')?.focus();
+});
+byId("server-create-shortcut").addEventListener("click", () => openCommunityDialog("server-create-dialog"));
+byId("channel-create-open").addEventListener("click", () => {
+  if (!currentServer) {
+    setStatus("community-status", "Сначала выберите сервер.");
+    return;
+  }
+  byId("channel-server-name").textContent = currentServer.name;
+  byId("channel-form").reset();
+  byId("channel-name-count").textContent = "0/32";
+  byId("channel-name-error").hidden = true;
+  setStatus("channel-create-status", "");
+  openCommunityDialog("channel-create-dialog", byId("channel-create-open"));
+});
+document.querySelectorAll("[data-community-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    byId("community-add-menu").hidden = true;
+    byId("community-add-open").setAttribute("aria-expanded", "false");
+    const action = button.dataset.communityAction;
+    if (action === "create-server") {
+      byId("server-form").reset();
+      byId("server-name-count").textContent = "0/50";
+      byId("server-create-status").textContent = "";
+      setServerPhotoPreview(null);
+      openCommunityDialog("server-create-dialog", button);
+    } else if (action === "join-server") {
+      byId("server-join-form").reset();
+      byId("server-join-status").textContent = "";
+      openCommunityDialog("server-join-dialog", button);
+    }
+  });
+});
+document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+  button.addEventListener("click", () => closeCommunityDialog(button.dataset.dialogClose));
+});
+byId("server-name").addEventListener("input", () => {
+  byId("server-name-count").textContent = `${byId("server-name").value.length}/50`;
+  byId("server-name").removeAttribute("aria-invalid");
+  setStatus("server-create-status", "");
+});
+byId("server-name").addEventListener("invalid", (event) => {
+  event.preventDefault();
+  setStatus("server-create-status", "Введите название сервера.");
+  byId("server-name").setAttribute("aria-invalid", "true");
+});
+byId("server-avatar-file").addEventListener("change", () => {
+  const file = byId("server-avatar-file").files[0];
+  if (file && (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type) || file.size > 5 * 1024 * 1024)) {
+    byId("server-create-status").textContent = "Выберите JPG, PNG, WebP или GIF размером до 5 МБ.";
+    byId("server-avatar-file").value = "";
+    setServerPhotoPreview(null);
+    return;
+  }
+  byId("server-create-status").textContent = "";
+  setServerPhotoPreview(file);
+});
+byId("channel-name").addEventListener("input", () => {
+  const input = byId("channel-name");
+  const normalized = normalizeChannelName(input.value);
+  if (normalized !== input.value) {
+    const cursor = input.selectionStart;
+    input.value = normalized;
+    input.setSelectionRange(Math.min(cursor, normalized.length), Math.min(cursor, normalized.length));
+  }
+  byId("channel-name-count").textContent = `${input.value.length}/32`;
+  byId("channel-name-error").hidden = true;
+  input.removeAttribute("aria-invalid");
+});
+byId("channel-name").addEventListener("invalid", (event) => {
+  event.preventDefault();
+  byId("channel-name-error").textContent = "Введите название канала.";
+  byId("channel-name-error").hidden = false;
+  byId("channel-name").setAttribute("aria-invalid", "true");
+});
+byId("channel-category").addEventListener("change", () => {
+  byId("channel-new-category").hidden = byId("channel-category").value !== "__new__";
+  if (!byId("channel-new-category").hidden) byId("channel-new-category").focus();
+});
+byId("server-back").addEventListener("click", () => {
+  currentServer = null;
+  currentChannel = null;
+  if (channelSubscription) void supabase.removeChannel(channelSubscription);
+  channelSubscription = null;
+  byId("server-view").hidden = true;
+  updateCommunityEmptyState(byId("server-list").children.length > 0);
+  byId("communities-section").classList.remove("is-detail-open", "is-channel-open");
+});
+byId("channel-back").addEventListener("click", async () => {
+  currentChannel = null;
+  byId("channel-view").hidden = true;
+  byId("communities-section").classList.remove("is-channel-open");
+  if (channelSubscription) await supabase.removeChannel(channelSubscription);
+  channelSubscription = null;
+});
+byId("server-invite").addEventListener("click", async () => {
+  if (!currentServer?.invite_code) return;
+  const inviteUrl = new URL(window.location.pathname, window.location.origin);
+  inviteUrl.searchParams.set("server", currentServer.invite_code);
+  try {
+    await navigator.clipboard.writeText(inviteUrl.href);
+    setStatus("community-status", "Ссылка-приглашение скопирована.");
+  } catch (error) {
+    console.error("GadLink invite clipboard:", error);
+    setStatus("community-status", `Не удалось скопировать ссылку: ${inviteUrl.href}`);
+  }
 });
 document.querySelector(".profile-menu__backdrop").addEventListener("click", () => setMenuOpen(false));
 byId("add-contact-button").addEventListener("click", () => {
@@ -1007,6 +1318,12 @@ byId("create-menu").addEventListener("click", (event) => {
   }
 });
 document.addEventListener("click", (event) => {
+  if (byId("community-add-menu").hidden) return;
+  if (event.target.closest("#community-add-menu, #community-add-open")) return;
+  byId("community-add-menu").hidden = true;
+  byId("community-add-open").setAttribute("aria-expanded", "false");
+});
+document.addEventListener("click", (event) => {
   if (byId("create-menu").hidden) return;
   if (event.target.closest("#create-menu, #add-contact-button")) return;
   setCreateMenuOpen(false);
@@ -1023,6 +1340,52 @@ byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
+  const communityDialog = [...document.querySelectorAll(".community-dialog")]
+    .find((dialog) => !dialog.hidden);
+  if (communityDialog) {
+    if (event.key === "Escape") {
+      closeCommunityDialog(communityDialog.id);
+      return;
+    }
+    if (!byId("community-add-menu").hidden) {
+      const actions = [...byId("community-add-menu").querySelectorAll('[role="menuitem"]')];
+      if (event.key === "Escape") {
+        byId("community-add-menu").hidden = true;
+        byId("community-add-open").setAttribute("aria-expanded", "false");
+        byId("community-add-open").focus();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        const index = actions.indexOf(document.activeElement);
+        actions[(index + direction + actions.length) % actions.length]?.focus();
+        event.preventDefault();
+      } else if (event.key === "Tab") {
+        const first = actions[0];
+        const last = actions[actions.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          byId("community-add-open").focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          byId("community-add-open").focus();
+        }
+      }
+      return;
+    }
+    if (event.key === "Tab") {
+      const actions = [...communityDialog.querySelectorAll("button:not(:disabled), input:not(:disabled):not([type=file]), select:not(:disabled), textarea:not(:disabled)")]
+        .filter((element) => element.offsetParent !== null);
+      const first = actions[0];
+      const last = actions[actions.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    return;
+  }
   if (!byId("create-group-dialog").hidden) {
     if (event.key === "Escape") {
       setCreateGroupDialogOpen(false);
@@ -1208,6 +1571,11 @@ byId("sign-out").addEventListener("click", async () => {
   reelsController?.reset();
   currentConversation = null;
   currentChannel = null;
+  currentServer = null;
+  byId("server-list").replaceChildren();
+  byId("server-view").hidden = true;
+  updateCommunityEmptyState(false);
+  byId("communities-section").classList.remove("is-detail-open", "is-channel-open");
   conversationLoadVersion += 1;
   clearTimeout(conversationSyncTimer);
   conversationSyncTimer = null;
@@ -1453,38 +1821,189 @@ byId("message-form").addEventListener("submit", async (event) => {
 
 byId("server-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const { data, error } = await supabase
-    .from("servers")
-    .insert({ name: byId("server-name").value.trim(), created_by: user.id })
-    .select("id,name")
-    .single();
-  if (error) {
-    setStatus("community-status", error.message);
+  const form = byId("server-form");
+  const submit = form.querySelector('[type="submit"]');
+  const name = byId("server-name").value.trim();
+  const file = byId("server-avatar-file").files[0];
+  if (!name) {
+    setStatus("server-create-status", "Введите название сервера.");
+    byId("server-name").focus();
     return;
   }
-  byId("server-form").reset();
-  setStatus("community-status", "сервер создан.");
-  await loadServers();
-  await openServer(data);
+  if (!user?.id) {
+    setStatus("server-create-status", "Войдите в аккаунт, чтобы создать сервер.");
+    return;
+  }
+  submit.disabled = true;
+  setStatus("server-create-status", "Создаём сервер…");
+  let avatarPath = null;
+  let serverCreated = false;
+  try {
+    if (file) {
+      const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" })[file.type];
+      if (!extension || file.size > 5 * 1024 * 1024) throw new Error("Выберите изображение JPG, PNG, WebP или GIF размером до 5 МБ.");
+      avatarPath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("server-avatars").upload(avatarPath, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+    }
+
+    const { data, error } = await supabase.from("servers").insert({
+      name,
+      created_by: user.id,
+      server_type: form.querySelector('[name="server-type"]:checked')?.value || "friends",
+      is_private: byId("server-private").checked,
+      description: byId("server-description").value.trim(),
+      avatar_path: avatarPath
+    }).select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by").single();
+    if (error) throw error;
+    serverCreated = true;
+
+    byId("community-empty").hidden = true;
+    form.reset();
+    byId("server-name-count").textContent = "0/50";
+    setServerPhotoPreview(null);
+    closeCommunityDialog("server-create-dialog");
+    await loadServers();
+    if (data) await openServer(data);
+    setStatus("community-status", "Сервер создан.");
+  } catch (error) {
+    console.error("GadLink create server:", error);
+    if (avatarPath && !serverCreated) {
+      try {
+        const { error: cleanupError } = await supabase.storage.from("server-avatars").remove([avatarPath]);
+        if (cleanupError) console.error("GadLink server avatar cleanup:", cleanupError);
+      } catch (cleanupError) {
+        console.error("GadLink server avatar cleanup:", cleanupError);
+      }
+    }
+    const message = error.code === "42501" || /row-level security|permission denied/i.test(error.message)
+      ? "У вас нет прав на создание сервера. Проверьте RLS-политики."
+      : error.message;
+    setStatus(serverCreated ? "community-status" : "server-create-status", `Не удалось создать сервер: ${message}`);
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 byId("channel-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const { error } = await supabase.from("text_channels").insert({
-    server_id: byId("channel-form").dataset.serverId,
-    name: byId("channel-name").value.trim()
-  });
-  if (error) {
-    setStatus("community-status", error.message);
+  const form = byId("channel-form");
+  const submit = form.querySelector('[type="submit"]');
+  const nameInput = byId("channel-name");
+  const name = normalizeChannelName(nameInput.value);
+  const channels = [...byId("channel-list").querySelectorAll(".channel-list-button strong")].map((node) => normalizeChannelName(node.textContent));
+  if (!name) {
+    byId("channel-name-error").textContent = "Введите название канала.";
+    byId("channel-name-error").hidden = false;
+    nameInput.setAttribute("aria-invalid", "true");
+    nameInput.focus();
     return;
   }
-  byId("channel-form").reset();
-  const { data: server } = await supabase
-    .from("servers")
-    .select("id,name")
-    .eq("id", byId("channel-form").dataset.serverId)
-    .single();
-  if (server) await openServer(server);
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,31}$/u.test(name)) {
+    byId("channel-name-error").textContent = "Используйте буквы, цифры, дефис или подчёркивание.";
+    byId("channel-name-error").hidden = false;
+    nameInput.setAttribute("aria-invalid", "true");
+    nameInput.focus();
+    return;
+  }
+  if (channels.includes(name)) {
+    byId("channel-name-error").textContent = `Канал «${name}» уже есть на этом сервере. Выберите другое имя.`;
+    byId("channel-name-error").hidden = false;
+    nameInput.setAttribute("aria-invalid", "true");
+    nameInput.focus();
+    return;
+  }
+  const categorySelection = byId("channel-category").value;
+  const category = categorySelection === "__new__"
+    ? byId("channel-new-category").value.trim()
+    : categorySelection;
+  if (categorySelection === "__new__" && !category) {
+    setStatus("channel-create-status", "Введите название категории.");
+    byId("channel-new-category").focus();
+    return;
+  }
+  if (!currentServer?.id || !user?.id) {
+    setStatus("channel-create-status", "Выберите сервер и войдите в аккаунт.");
+    return;
+  }
+
+  submit.disabled = true;
+  setStatus("channel-create-status", "Создаём канал…");
+  let channelCreated = false;
+  try {
+    const { error } = await supabase.from("text_channels").insert({
+      server_id: currentServer.id,
+      created_by: user.id,
+      name,
+      channel_type: form.querySelector('[name="channel-type"]:checked')?.value || "text",
+      category: category || null,
+      is_private: byId("channel-private").checked
+    });
+    if (error) throw error;
+    channelCreated = true;
+    const server = currentServer;
+    closeCommunityDialog("channel-create-dialog");
+    form.reset();
+    byId("channel-name-count").textContent = "0/32";
+    byId("channel-name-error").hidden = true;
+    byId("channel-new-category").hidden = true;
+    await openServer(server);
+    setStatus("community-status", "Канал создан.");
+  } catch (error) {
+    console.error("GadLink create channel:", error);
+    const message = error.code === "42501" || /row-level security|permission denied/i.test(error.message)
+      ? "У вас нет прав на создание канала в этом сервере."
+      : error.code === "23505"
+        ? "Канал с таким названием уже существует. Выберите другое имя."
+        : error.message;
+    byId("channel-name-error").textContent = message;
+    byId("channel-name-error").hidden = false;
+    nameInput.setAttribute("aria-invalid", "true");
+    setStatus(channelCreated ? "community-status" : "channel-create-status", `Не удалось создать канал: ${message}`);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+byId("server-join-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = byId("server-join-form").querySelector('[type="submit"]');
+  const rawLink = byId("server-invite-link").value.trim();
+  let inviteToken = rawLink;
+  try {
+    inviteToken = new URL(rawLink, window.location.href).searchParams.get("server") || rawLink;
+  } catch {
+    inviteToken = rawLink;
+  }
+  if (!inviteToken || inviteToken.length > 200) {
+    setStatus("server-join-status", "Введите корректную ссылку-приглашение.");
+    return;
+  }
+  submit.disabled = true;
+  setStatus("server-join-status", "Подключаемся…");
+  let joinedServer = false;
+  try {
+    const { data: serverId, error } = await supabase.rpc("gadlink_join_server", { invite_token: inviteToken });
+    if (error) throw error;
+    if (!serverId) throw new Error("Сервер по этой ссылке не найден.");
+    joinedServer = true;
+    closeCommunityDialog("server-join-dialog");
+    await loadServers();
+    const { data: server, error: serverError } = await supabase.from("servers")
+      .select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by")
+      .eq("id", serverId)
+      .single();
+    if (serverError) throw serverError;
+    if (!server) throw new Error("Вы присоединились, но сервер не удалось открыть.");
+    await openServer(server);
+    setStatus("community-status", `Вы присоединились к серверу «${server.name}».`);
+  } catch (error) {
+    console.error("GadLink join server:", error);
+    const message = error.code === "42501" ? "Войдите в аккаунт, чтобы присоединиться к серверу." : error.message;
+    setStatus(joinedServer ? "community-status" : "server-join-status", `Не удалось присоединиться: ${message}`);
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 byId("channel-message-form").addEventListener("submit", async (event) => {
@@ -1520,8 +2039,18 @@ supabase.auth.onAuthStateChange((_event, session) => {
     chatSubscription = null;
     if (conversationMembershipSubscription) void supabase.removeChannel(conversationMembershipSubscription);
     conversationMembershipSubscription = null;
+<<<<<<< HEAD
     if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
     chatOverviewSubscription = null;
+=======
+    if (channelSubscription) void supabase.removeChannel(channelSubscription);
+    channelSubscription = null;
+    currentChannel = null;
+    currentServer = null;
+    byId("server-list").replaceChildren();
+    byId("server-view").hidden = true;
+    updateCommunityEmptyState(false);
+>>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
     conversationLoadVersion += 1;
     clearTimeout(conversationSyncTimer);
     conversationSyncTimer = null;

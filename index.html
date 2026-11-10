@@ -74,25 +74,39 @@
 
     <div id="app" hidden>
       <nav aria-label="разделы">
-        <button id="menu-toggle" type="button" aria-label="Открыть меню профиля" aria-expanded="false" aria-controls="profile-menu" hidden>
+        <button id="menu-toggle" type="button" aria-label="Открыть настройки" aria-expanded="false" aria-controls="profile-menu" hidden>
           <span></span><span></span><span></span>
+          <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"/></svg>
+          <small class="settings-nav-label">Настройки</small>
         </button>
-        <button type="button" data-section="chats-section" aria-label="Chats">
+        <button type="button" data-section="chats-section" aria-label="Чаты">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.5-.8L4 20l1.7-4.2A7.3 7.3 0 0 1 5 12a7.5 7.5 0 0 1 15 0Z"/><path d="M8 5.2A7.5 7.5 0 0 1 21 11"/></svg>
-          <span>Chats</span>
+          <span>Чаты</span>
         </button>
         <button type="button" data-section="reels-section">Reels</button>
         <button id="reel-publish-open" type="button" aria-label="Опубликовать видео или фото">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           <span>Добавить</span>
         </button>
-        <button type="button" data-section="friends-section" aria-label="Contacts">
+        <button type="button" data-section="friends-section" aria-label="Контакты">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0Z"/></svg>
-          <span>Contacts</span>
+          <span>Контакты</span>
         </button>
+<<<<<<< HEAD
         <button type="button" data-section="calls-section" aria-label="Calls">
+=======
+        <button type="button" data-section="calls-section" aria-label="Звонки">
+>>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>
-          <span>Calls</span>
+          <span>Звонки</span>
+        </button>
+        <button type="button" data-section="communities-section" aria-label="Серверы">
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg>
+          <span>Серверы</span>
+        </button>
+        <button type="button" data-section="profile-section" aria-label="Настройки">
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"/></svg>
+          <span>Настройки</span>
         </button>
       </nav>
       <section id="profile-section" class="page-section" hidden>
@@ -251,34 +265,77 @@
   <h3>Мои друзья</h3>
   <div id="friends-list"></div>
 </section>
+      <section id="calls-section" class="page-section calls-section" hidden>
+        <h2>Звонки</h2>
+        <div class="calls-empty">
+          <span aria-hidden="true">☎</span>
+          <h3>Звонки скоро появятся</h3>
+          <p>Мы готовим голосовые и видеозвонки для GadLink.</p>
+        </div>
+      </section>
       <section id="communities-section" class="page-section" hidden>
-        <h2>сервера и каналы</h2>
-        <form id="server-form">
-          <label for="server-name">название сервера</label>
-          <input id="server-name" maxlength="80" required>
-          <button type="submit">создать сервер</button>
-        </form>
-        <p id="community-status" role="status"></p>
-        <ul id="server-list"></ul>
-        <div id="server-view" hidden>
-          <h3 id="server-title"></h3>
-          <form id="channel-form">
-            <label for="channel-name">название канала</label>
-            <input id="channel-name" maxlength="80" required>
-            <button type="submit">создать канал</button>
-          </form>
-          <ul id="channel-list"></ul>
-          <div id="channel-view" hidden>
-            <h3 id="channel-title"></h3>
-            <div id="channel-messages" aria-live="polite"></div>
-            <form id="channel-message-form">
-              <label for="channel-message-content">сообщение канала</label>
-              <input id="channel-message-content" maxlength="2000" required>
-              <button type="submit">отправить</button>
-            </form>
+        <header class="communities-header">
+          <div>
+            <p class="eyebrow">ВАШИ ПРОСТРАНСТВА</p>
+            <h2>Серверы и каналы</h2>
+          </div>
+          <button id="community-add-open" class="community-add-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="community-add-menu" aria-label="Добавить сервер">+</button>
+        </header>
+        <p id="community-status" role="status" aria-live="polite"></p>
+        <div class="community-layout">
+          <aside class="community-server-panel" aria-label="Список серверов">
+            <div class="community-panel-heading">
+              <h3>Мои серверы</h3>
+              <button id="server-create-shortcut" type="button" aria-label="Создать сервер">+</button>
+            </div>
+            <ul id="server-list"></ul>
+          </aside>
+          <div id="community-empty" class="community-empty">
+            <span class="community-empty__icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48"><rect x="10" y="8" width="28" height="13" rx="4"/><rect x="10" y="27" width="28" height="13" rx="4"/><path d="M16 14.5h.01M16 33.5h.01"/></svg>
+            </span>
+            <h3>У вас пока нет серверов</h3>
+            <p>Создайте своё пространство или присоединитесь к серверу по ссылке-приглашению.</p>
+            <button type="button" data-community-action="create-server">Создать сервер</button>
+            <button type="button" class="community-empty__link" data-community-action="join-server">Присоединиться по ссылке</button>
+          </div>
+          <div id="server-view" class="community-detail" hidden>
+            <button id="server-back" class="community-back" type="button">‹ <span>Все серверы</span></button>
+            <div class="server-detail-heading">
+              <div id="server-avatar" class="server-avatar" aria-hidden="true"></div>
+              <div class="server-detail-copy">
+                <h3 id="server-title"></h3>
+                <p id="server-description"></p>
+                <span id="server-meta"></span>
+              </div>
+              <div class="server-detail-actions">
+                <button id="server-invite" type="button">Пригласить</button>
+                <button id="channel-create-open" class="primary-button" type="button">＋ Создать канал</button>
+              </div>
+            </div>
+            <div class="community-channel-heading"><h4>Каналы</h4></div>
+            <p id="channel-empty" class="channel-empty" hidden>В этом сервере пока нет каналов. Создайте первый.</p>
+            <ul id="channel-list"></ul>
+            <div id="channel-view" class="channel-detail" hidden>
+              <button id="channel-back" class="community-back" type="button">‹ <span>К каналам</span></button>
+              <h3 id="channel-title"></h3>
+              <p id="channel-description" class="channel-description"></p>
+              <div id="channel-messages" aria-live="polite"></div>
+              <p id="channel-voice-empty" class="channel-voice-empty" hidden>Это голосовой канал. Подключение голосовых звонков появится позже.</p>
+              <p id="channel-readonly-note" class="channel-readonly-note" hidden>Публиковать сообщения в канале объявлений может только владелец сервера.</p>
+              <form id="channel-message-form">
+                <label for="channel-message-content">Сообщение канала</label>
+                <input id="channel-message-content" maxlength="2000" placeholder="Написать сообщение…" required>
+                <button type="submit">Отправить</button>
+              </form>
+            </div>
           </div>
         </div>
       </section>
+      <div id="community-add-menu" class="community-add-menu" role="menu" aria-label="Добавить сервер" hidden>
+        <button type="button" role="menuitem" data-community-action="create-server"><span aria-hidden="true">▣</span>Создать сервер</button>
+        <button type="button" role="menuitem" data-community-action="join-server"><span aria-hidden="true">↗</span>Присоединиться по ссылке</button>
+      </div>
       <div id="create-menu" class="create-menu" role="menu" aria-label="Создать" hidden>
         <button type="button" role="menuitem" data-create-action="group"><span aria-hidden="true">♧</span>Создать группу</button>
         <button type="button" role="menuitem" data-create-action="channel"><span aria-hidden="true">#</span>Создать канал</button>
@@ -292,6 +349,7 @@
     </div>
   </main>
 
+<<<<<<< HEAD
   <div id="voice-call-dialog" class="voice-call-dialog" role="dialog" aria-modal="true" aria-labelledby="voice-call-name" hidden>
     <div class="voice-call-dialog__panel">
       <img id="voice-call-avatar" class="voice-call-avatar" alt="" hidden>
@@ -312,6 +370,133 @@
         <button id="voice-call-hangup" class="voice-call-end" type="button">Завершить звонок</button>
       </div>
     </div>
+=======
+  <div id="server-create-dialog" class="community-dialog" role="dialog" aria-modal="true" aria-labelledby="server-create-title" hidden inert>
+    <button class="community-dialog__backdrop" type="button" data-dialog-close="server-create-dialog" aria-label="Закрыть создание сервера"></button>
+    <section class="community-dialog__panel">
+      <div class="community-dialog__heading">
+        <button type="button" class="community-dialog__cancel" data-dialog-close="server-create-dialog">Отмена</button>
+        <h2 id="server-create-title">Новый сервер</h2>
+        <button type="button" class="community-dialog__close" data-dialog-close="server-create-dialog" aria-label="Закрыть">×</button>
+      </div>
+      <form id="server-form">
+        <label class="server-photo-picker" for="server-avatar-file">
+          <span id="server-avatar-preview" class="server-photo-preview" aria-hidden="true">▧</span>
+          <span>Добавить фото</span>
+          <input id="server-avatar-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+        </label>
+        <div class="community-field">
+          <label for="server-name">Название сервера</label>
+          <div class="community-input-wrap">
+            <input id="server-name" maxlength="50" placeholder="Например, Дизайн-команда" required>
+            <span id="server-name-count" class="community-counter">0/50</span>
+          </div>
+        </div>
+        <fieldset class="community-choice-field">
+          <legend>Тип сервера <span>(необязательно)</span></legend>
+          <div class="server-type-grid">
+            <label><input type="radio" name="server-type" value="friends" checked><span>Для друзей</span></label>
+            <label><input type="radio" name="server-type" value="community"><span>Для сообщества</span></label>
+            <label><input type="radio" name="server-type" value="study"><span>Для учёбы</span></label>
+            <label><input type="radio" name="server-type" value="work"><span>Для работы</span></label>
+          </div>
+        </fieldset>
+        <label class="community-switch">
+          <span><strong>Приватный сервер</strong><small>Доступен только по ссылке-приглашению</small></span>
+          <input id="server-private" type="checkbox">
+          <span class="community-switch__track" aria-hidden="true"></span>
+        </label>
+        <div class="community-field">
+          <label for="server-description">Описание <span>(необязательно)</span></label>
+          <textarea id="server-description" maxlength="300" placeholder="О чём этот сервер?"></textarea>
+        </div>
+        <p id="server-create-status" class="community-form-status" role="alert"></p>
+        <button class="community-submit" type="submit">Создать сервер</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="channel-create-dialog" class="community-dialog" role="dialog" aria-modal="true" aria-labelledby="channel-create-title" hidden inert>
+    <button class="community-dialog__backdrop" type="button" data-dialog-close="channel-create-dialog" aria-label="Закрыть создание канала"></button>
+    <section class="community-dialog__panel">
+      <div class="community-dialog__heading">
+        <button type="button" class="community-dialog__cancel" data-dialog-close="channel-create-dialog">Отмена</button>
+        <h2 id="channel-create-title">Новый канал</h2>
+        <button type="button" class="community-dialog__close" data-dialog-close="channel-create-dialog" aria-label="Закрыть">×</button>
+      </div>
+      <p class="community-dialog__context">в сервере <strong id="channel-server-name"></strong></p>
+      <form id="channel-form">
+        <fieldset class="community-choice-field">
+          <legend>Тип канала</legend>
+          <div class="channel-type-list">
+            <label class="channel-type-option">
+              <input type="radio" name="channel-type" value="text" checked>
+              <span class="channel-type-icon" aria-hidden="true">#</span>
+              <span class="channel-type-copy"><strong>Текстовый</strong><small>Сообщения, файлы, эмодзи</small></span>
+              <span class="channel-type-radio" aria-hidden="true"></span>
+            </label>
+            <label class="channel-type-option">
+              <input type="radio" name="channel-type" value="voice">
+              <span class="channel-type-icon" aria-hidden="true">◖</span>
+              <span class="channel-type-copy"><strong>Голосовой</strong><small>Голос и видео</small></span>
+              <span class="channel-type-radio" aria-hidden="true"></span>
+            </label>
+            <label class="channel-type-option">
+              <input type="radio" name="channel-type" value="announcement">
+              <span class="channel-type-icon" aria-hidden="true">▤</span>
+              <span class="channel-type-copy"><strong>Объявления</strong><small>Пишет только владелец сервера</small></span>
+              <span class="channel-type-radio" aria-hidden="true"></span>
+            </label>
+          </div>
+        </fieldset>
+        <div class="community-field">
+          <label for="channel-name">Название канала</label>
+          <div class="community-input-wrap">
+            <span class="channel-name-prefix" aria-hidden="true">#</span>
+            <input id="channel-name" maxlength="32" placeholder="например, общее" required autocomplete="off">
+            <span id="channel-name-count" class="community-counter">0/32</span>
+          </div>
+          <small id="channel-name-error" class="community-field-error" hidden></small>
+        </div>
+        <div class="community-field">
+          <label for="channel-category">Категория</label>
+          <select id="channel-category">
+            <option value="">Без категории</option>
+            <option value="Общие">Общие</option>
+            <option value="Голосовые">Голосовые</option>
+            <option value="Объявления">Объявления</option>
+            <option value="__new__">＋ Создать категорию</option>
+          </select>
+          <input id="channel-new-category" maxlength="40" placeholder="Название категории" hidden>
+        </div>
+        <label class="community-switch">
+          <span><strong>Приватный канал</strong><small>Виден только создателю сервера</small></span>
+          <input id="channel-private" type="checkbox">
+          <span class="community-switch__track" aria-hidden="true"></span>
+        </label>
+        <p id="channel-create-status" class="community-form-status" role="alert"></p>
+        <button class="community-submit" type="submit">Создать канал</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="server-join-dialog" class="community-dialog" role="dialog" aria-modal="true" aria-labelledby="server-join-title" hidden inert>
+    <button class="community-dialog__backdrop" type="button" data-dialog-close="server-join-dialog" aria-label="Закрыть присоединение к серверу"></button>
+    <section class="community-dialog__panel community-dialog__panel--compact">
+      <div class="community-dialog__heading">
+        <button type="button" class="community-dialog__cancel" data-dialog-close="server-join-dialog">Отмена</button>
+        <h2 id="server-join-title">Присоединиться</h2>
+        <button type="button" class="community-dialog__close" data-dialog-close="server-join-dialog" aria-label="Закрыть">×</button>
+      </div>
+      <p class="community-dialog__hint">Вставьте ссылку-приглашение, чтобы присоединиться к серверу.</p>
+      <form id="server-join-form">
+        <label for="server-invite-link">Ссылка-приглашение</label>
+        <input id="server-invite-link" type="text" inputmode="url" placeholder="https://…?server=…" required autocomplete="off">
+        <p id="server-join-status" class="community-form-status" role="alert"></p>
+        <button class="community-submit" type="submit">Присоединиться к серверу</button>
+      </form>
+    </section>
+>>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
   </div>
 
   <div id="friend-add-dialog" class="friend-add-dialog" role="dialog" aria-modal="true" aria-labelledby="friend-add-title" hidden inert>
