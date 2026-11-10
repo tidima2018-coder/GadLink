@@ -63,7 +63,11 @@ export function getAuthErrorMessage(error) {
   if (message.includes("rate limit") || message.includes("too many requests") || message.includes("only request this after")) {
     return "Слишком много запросов. Подождите и попробуйте снова.";
   }
-  if (message.includes("smtp") || message.includes("email") || message.includes("mail")) {
+  if (
+    message.includes("smtp") ||
+    message.includes("failed to send") ||
+    message.includes("email provider")
+  ) {
     return "Не удалось отправить письмо. Проверьте настройки SMTP и попробуйте позже.";
   }
   return error?.message || "Не удалось выполнить запрос. Попробуйте ещё раз.";
@@ -104,14 +108,18 @@ export async function registerWithEmail(email, password) {
   }
 
   if (data.session) {
-    await supabase.auth.signOut({ scope: "local" });
-    throw createAuthError({
-      message: "Подтверждение обязательно: включите Confirm Email в настройках Supabase Auth."
-    });
+    if (data.user?.email_confirmed_at || data.user?.confirmed_at) {
+      clearPendingEmail();
+      return data.user;
+    }
+
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+    if (signOutError) throw createAuthError(signOutError);
   }
 
   localStorage.setItem(pendingEmailKey, email.trim().toLowerCase());
   startResendCooldown(email);
+  return null;
 }
 
 export async function signInWithEmail(email, password) {
@@ -163,12 +171,17 @@ export async function resendConfirmationEmail(email) {
   }
 
   startResendCooldown(email);
-  const { error } = await supabase.auth.resend({
-    type: "signup",
-    email,
-    options: { emailRedirectTo: getConfirmationUrl() }
-  });
-  if (error) throw createAuthError(error, { canResend: true });
+  try {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: getConfirmationUrl() }
+    });
+    if (error) throw createAuthError(error, { canResend: true });
+  } catch (error) {
+    localStorage.removeItem(cooldownKey(email));
+    throw error;
+  }
 }
 
 export function getPendingEmail() {

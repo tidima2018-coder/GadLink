@@ -126,6 +126,17 @@
       box-shadow: 0 9px 25px #5865f233;
     }
 
+    .confirm-email {
+      width: 100%;
+      margin-bottom: 12px;
+      padding: 14px;
+      border: 1px solid #3b4260;
+      border-radius: 12px;
+      background: #101323;
+      color: #fff;
+      font: inherit;
+    }
+
     .confirm-btn:hover:not(:disabled) {
       transform: translateY(-2px);
       box-shadow: 0 12px 30px #5865f255;
@@ -218,17 +229,20 @@
 
       <p class="description" id="description">
         Добро пожаловать в GadLink!
-        Остался последний шаг.
-        Нажми на кнопку ниже, чтобы
-        подтвердить свою электронную почту.
+        Откройте ссылку из письма, чтобы подтвердить адрес электронной почты.
       </p>
 
-      <button
-        type="button"
-        class="confirm-btn"
-        id="confirm-button"
+      <input
+        id="confirm-email"
+        class="confirm-email"
+        type="email"
+        autocomplete="email"
+        aria-label="Электронная почта"
+        placeholder="Электронная почта для повторной отправки"
       >
-        Подтвердить почту
+
+      <button type="button" class="confirm-btn" id="resend-confirmation" hidden>
+        Отправить письмо повторно
       </button>
 
       <p
@@ -249,80 +263,7 @@
     </section>
   </main>
 
-  <script type="module">
-    import { supabase } from "./js/supabaseClient.js";
-
-    const button = document.getElementById("confirm-button");
-    const status = document.getElementById("confirm-status");
-    const title = document.getElementById("page-title");
-    const description = document.getElementById("description");
-    const icon = document.getElementById("status-icon");
-
-    const params = new URLSearchParams(window.location.search);
-    const tokenHash = params.get("token_hash");
-    const type = params.get("type");
-
-    // Убираем одноразовый токен из адресной строки.
-    if (tokenHash) {
-      window.history.replaceState(
-        {},
-        "",
-        window.location.pathname
-      );
-    }
-
-    if (!tokenHash || type !== "email") {
-      button.disabled = true;
-      status.textContent =
-        "Откройте страницу по новой ссылке из письма GadLink.";
-      status.className = "status error";
-    }
-
-    button.addEventListener("click", async () => {
-      if (!tokenHash || type !== "email") return;
-
-      button.disabled = true;
-      button.textContent = "Подтверждаем...";
-      status.textContent = "Проверяем ссылку...";
-      status.className = "status";
-
-      try {
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: "email"
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        // Выходим из временной сессии подтверждения.
-        await supabase.auth.signOut({ scope: "local" });
-
-        icon.textContent = "✓";
-        title.textContent = "Почта подтверждена!";
-
-        description.textContent =
-          "Поздравляем! Твоя электронная почта успешно подтверждена. Теперь ты можешь войти в GadLink.";
-
-        status.textContent = "Регистрация завершена!";
-        status.className = "status success";
-
-        button.textContent = "Успешно подтверждено";
-        button.style.background = "#239b72";
-
-      } catch (error) {
-        button.disabled = true;
-        button.textContent = "Не удалось подтвердить";
-
-        status.textContent =
-          "Ссылка недействительна или срок её действия истёк. Запроси новое письмо при регистрации.";
-
-        status.className = "status error";
-        console.error("Confirmation error:", error);
-      }
-    });
-  </script>
+  <script type="module" src="./js/confirm.js"></script>
 
 </body>
 </html>

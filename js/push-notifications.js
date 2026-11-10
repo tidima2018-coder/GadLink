@@ -102,6 +102,7 @@ export function createPushNotifications({ supabase, getUser }) {
     endpoint = data ? currentEndpoint : null;
     previewInput.checked = Boolean(data?.show_preview);
     updateControls(Boolean(data));
+    if (data) setStatus("Push-уведомления включены на этом устройстве. Подписку можно отключить кнопкой.");
     postState();
   }
 

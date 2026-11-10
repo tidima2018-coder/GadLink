@@ -1067,14 +1067,27 @@ async function loadApp() {
   showApp(true);
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([
-    loadProfile(),
-    loadPosts(),
+    loadProfile().catch((error) => {
+      console.error("GadLink profile load:", error);
+      setStatus("profile-status", `Не удалось загрузить профиль: ${error.message}`);
+      byId("menu-profile-status").textContent = `Не удалось загрузить профиль: ${error.message}`;
+    }),
+    loadPosts().catch((error) => {
+      console.error("GadLink posts load:", error);
+      setStatus("feed-status", `Не удалось загрузить ленту: ${error.message}`);
+    }),
     loadConversations().catch((error) => {
       console.error("GadLink conversations load:", error);
       setStatus("chat-status", `Не удалось загрузить список чатов: ${error.message}`);
     }),
-    loadServers(),
-    voiceCallsController.initialize(),
+    loadServers().catch((error) => {
+      console.error("GadLink servers initialization:", error);
+      setStatus("community-status", `Не удалось загрузить серверы: ${error.message}`);
+    }),
+    voiceCallsController.initialize().catch((error) => {
+      console.error("GadLink voice calls initialization:", error);
+      setStatus("calls-status", `Не удалось подключить звонки: ${error.message}`);
+    }),
     pushController.initialize().catch((error) => {
       console.error("GadLink push initialization:", error);
       setStatus("push-status", `Не удалось подготовить уведомления: ${error.message}`);
@@ -1115,7 +1128,12 @@ async function loadApp() {
       }, loadPosts)
       .subscribe();
   }
-  await openNotificationRoute();
+  try {
+    await openNotificationRoute();
+  } catch (error) {
+    console.error("GadLink notification route:", error);
+    setStatus("chat-status", `Вы вошли, но не удалось открыть ссылку из уведомления: ${error.message}`);
+  }
 }
 
 function botAnswer(text) {
@@ -1514,13 +1532,28 @@ byId("auth-form").addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   try {
     user = await signInWithEmail(byId("auth-email").value.trim(), byId("auth-password").value);
-    showResendButton(false);
-    setStatus("auth-status", "");
-    await loadApp();
   } catch (error) {
     showApp(false);
     showAuthError(getAuthErrorMessage(error));
     showResendButton(error.needsConfirmation);
+    submitButton.disabled = false;
+    return;
+  }
+
+  showResendButton(false);
+  setStatus("auth-status", "");
+  try {
+    await loadApp();
+  } catch (error) {
+    console.error("GadLink app initialization after sign-in:", error);
+    const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    showApp(confirmed);
+    setStatus(
+      "auth-status",
+      confirmed
+        ? `Вы вошли, но приложение загрузилось не полностью: ${error.message}`
+        : error.message
+    );
   } finally {
     submitButton.disabled = false;
   }
@@ -1535,11 +1568,25 @@ byId("sign-up").addEventListener("click", async () => {
   showResendButton(false);
 
   try {
-    await registerWithEmail(email, byId("auth-password").value);
-    setStatus("auth-status", "Подтвердите вашу почту");
+    const registeredUser = await registerWithEmail(email, byId("auth-password").value);
+    if (registeredUser) {
+      user = registeredUser;
+      setStatus("auth-status", "");
+      await loadApp();
+      return;
+    }
+
+    setStatus("auth-status", "Регистрация создана. Подтвердите почту по ссылке из письма, затем войдите в аккаунт. Если письма нет, запросите его повторно.");
     showResendButton(true);
   } catch (error) {
-    setStatus("auth-status", getAuthErrorMessage(error));
+    const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    if (confirmed) {
+      console.error("GadLink app initialization after sign-up:", error);
+      showApp(true);
+      setStatus("auth-status", `Аккаунт создан и выполнен вход, но приложение загрузилось не полностью: ${error.message}`);
+    } else {
+      setStatus("auth-status", getAuthErrorMessage(error));
+    }
     showResendButton(error.canResend);
   } finally {
     button.disabled = false;
@@ -1585,7 +1632,12 @@ byId("sign-out").addEventListener("click", async () => {
     switchStatus.textContent = `Не удалось сменить аккаунт: ${error.message}`;
     return;
   }
-  await voiceCallsController.shutdown();
+  try {
+    await voiceCallsController.shutdown();
+  } catch (error) {
+    console.error("GadLink voice sign-out cleanup:", error);
+    byId("calls-status").textContent = `Не удалось полностью закрыть звонок: ${error.message}`;
+  }
   user = null;
   reelsController?.reset();
   currentConversation = null;
@@ -1871,7 +1923,7 @@ byId("server-form").addEventListener("submit", async (event) => {
       created_by: user.id,
       server_type: form.querySelector('[name="server-type"]:checked')?.value || "friends",
       is_private: byId("server-private").checked,
-      description: byId("server-description").value.trim(),
+      description: byId("server-description-input").value.trim(),
       avatar_path: avatarPath
     }).select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by").single();
     if (error) throw error;
@@ -2049,7 +2101,9 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
-    void voiceCallsController.shutdown();
+    void voiceCallsController.shutdown().catch((error) => {
+      console.error("GadLink voice auth cleanup:", error);
+    });
     void pushController.shutdown().catch((error) => {
       console.error("GadLink push auth cleanup:", error);
     });
@@ -2090,8 +2144,15 @@ getCurrentUser().then(async (currentUser) => {
   try {
     await loadApp();
   } catch (error) {
-    showApp(false);
-    setStatus("auth-status", error.message);
+    console.error("GadLink app restoration:", error);
+    const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    showApp(confirmed);
+    setStatus(
+      "auth-status",
+      confirmed
+        ? `Вы вошли, но приложение загрузилось не полностью: ${error.message}`
+        : error.message
+    );
   }
 }).catch((error) => {
   showApp(false);
