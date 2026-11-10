@@ -37,6 +37,19 @@ export function createPushNotifications({ supabase, getUser }) {
     statusBox.textContent = message;
   }
 
+  function needsPrompt() {
+    const owner = getUser();
+    if (!owner?.id || !("serviceWorker" in navigator) || !("PushManager" in window) ||
+        !("Notification" in window) || !window.isSecureContext || endpoint ||
+        Notification.permission === "denied") return false;
+    return localStorage.getItem(`gadlink-push-prompt-dismissed:${owner.id}`) !== "true";
+  }
+
+  function dismissPrompt() {
+    const owner = getUser();
+    if (owner?.id) localStorage.setItem(`gadlink-push-prompt-dismissed:${owner.id}`, "true");
+  }
+
   function postState(forceHidden = false) {
     const visible = !forceHidden && document.visibilityState === "visible";
     const state = {
@@ -239,6 +252,7 @@ export function createPushNotifications({ supabase, getUser }) {
     lastPresenceState = "";
     postState();
     setStatus("Push включены в этом браузере для текущего аккаунта.");
+    window.dispatchEvent(new Event("gadlink:push-enabled"));
   }
 
   async function disable() {
@@ -439,5 +453,5 @@ export function createPushNotifications({ supabase, getUser }) {
   document.addEventListener("visibilitychange", () => postState());
   window.addEventListener("pagehide", () => postState(true));
 
-  return { initialize, shutdown, setActiveConversation };
+  return { initialize, shutdown, setActiveConversation, needsPrompt, dismissPrompt };
 }

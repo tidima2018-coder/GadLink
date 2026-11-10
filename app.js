@@ -36,8 +36,12 @@ let menuAnimationFrame = null;
 let friendDialogCloseTimer = null;
 let groupDialogCloseTimer = null;
 let avatarPreviewUrl = null;
+let profileAvatarPreviewUrl = null;
 let communityDialogOpener = null;
 let serverPhotoPreviewUrl = null;
+let pushSettingsOpener = null;
+let pushSettingsCloseTimer = null;
+const chatBackgroundPresets = new Set(["rose", "dusk", "ocean", "forest"]);
 const communityDialogCloseTimers = new Map();
 let currentAbout = "";
 let currentAvatarUrl = null;
@@ -94,6 +98,79 @@ function setMenuOpen(isOpen, restoreFocus = true) {
     menuCloseTimer = null;
   }, 220);
 }
+
+function setPushSettingsDialogOpen(isOpen, rememberDismissal = false) {
+  const dialog = byId("push-settings-dialog");
+  clearTimeout(pushSettingsCloseTimer);
+  if (isOpen) {
+    pushSettingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.hidden = false;
+    dialog.removeAttribute("inert");
+    document.body.classList.add("push-settings-open");
+    requestAnimationFrame(() => dialog.classList.add("is-open"));
+    byId("push-toggle").focus();
+    return;
+  }
+  if (rememberDismissal) pushController.dismissPrompt();
+  dialog.classList.remove("is-open");
+  dialog.setAttribute("inert", "");
+  document.body.classList.remove("push-settings-open");
+  pushSettingsCloseTimer = setTimeout(() => {
+    dialog.hidden = true;
+    dialog.removeAttribute("inert");
+    pushSettingsCloseTimer = null;
+  }, 180);
+  if (pushSettingsOpener?.isConnected && !pushSettingsOpener.closest("[hidden]")) {
+    pushSettingsOpener.focus();
+  }
+  pushSettingsOpener = null;
+}
+
+byId("push-settings-open").addEventListener("click", () => setPushSettingsDialogOpen(true));
+document.querySelectorAll("[data-push-settings-close]").forEach((button) => {
+  button.addEventListener("click", () => setPushSettingsDialogOpen(false, true));
+});
+byId("push-prompt-dismiss").addEventListener("click", () => setPushSettingsDialogOpen(false, true));
+window.addEventListener("gadlink:push-enabled", () => setPushSettingsDialogOpen(false));
+document.addEventListener("keydown", (event) => {
+  if (!byId("push-settings-dialog").hidden && event.key === "Escape") {
+    setPushSettingsDialogOpen(false, true);
+  }
+});
+
+document.querySelectorAll("[data-chat-background]").forEach((button) => {
+  button.addEventListener("click", () => {
+    try {
+      saveChatBackgroundPreference(button.dataset.chatBackground);
+    } catch (error) {
+      console.error("GadLink save chat background:", error);
+      setStatus("chat-background-status", `Не удалось сохранить фон чата: ${error.message}`);
+    }
+  });
+});
+byId("chat-background-apply").addEventListener("click", () => {
+  const imageUrl = safeUrl(byId("chat-background-url").value.trim());
+  if (!imageUrl) {
+    setStatus("chat-background-status", "Вставьте корректную ссылку, начинающуюся с http:// или https://.");
+    return;
+  }
+  try {
+    saveChatBackgroundPreference("custom", imageUrl);
+  } catch (error) {
+    console.error("GadLink save custom chat background:", error);
+    setStatus("chat-background-status", `Не удалось сохранить фон чата: ${error.message}`);
+  }
+});
+byId("chat-background-reset").addEventListener("click", () => {
+  try {
+    localStorage.removeItem(chatBackgroundStorageKey());
+    applyChatBackground("rose");
+    setStatus("chat-background-status", "Установлен стандартный градиент чата.");
+  } catch (error) {
+    console.error("GadLink reset chat background:", error);
+    setStatus("chat-background-status", `Не удалось сбросить фон чата: ${error.message}`);
+  }
+});
 
 function setFriendDialogOpen(isOpen, restoreFocus = true) {
   const dialog = byId("friend-add-dialog");
@@ -205,6 +282,88 @@ function addText(parent, tag, text) {
   return element;
 }
 
+function updateAvatarElement(avatar, profile, className) {
+  avatar.className = className;
+  avatar.textContent = (profile?.username || "Пользователь").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
+  const avatarUrl = safeUrl(profile?.avatar_url || "");
+  if (avatarUrl) {
+    const image = document.createElement("img");
+    image.src = avatarUrl;
+    image.alt = "";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => image.remove(), { once: true });
+    avatar.append(image);
+  }
+  return avatar;
+}
+
+function createAvatar(profile, className) {
+  return updateAvatarElement(document.createElement("span"), profile, className);
+}
+
+function updateProfileAvatarPreview(value) {
+  const image = byId("profile-avatar-preview-image");
+  const placeholder = byId("profile-avatar-preview-placeholder");
+  const avatarUrl = value?.startsWith("blob:") ? value : safeUrl(value || "");
+  const username = byId("profile-username").value.trim() || currentUsername || "Пользователь";
+  placeholder.textContent = username.slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
+  if (!avatarUrl) {
+    image.hidden = true;
+    image.removeAttribute("src");
+    placeholder.hidden = false;
+    return;
+  }
+  image.onload = () => {
+    image.hidden = false;
+    placeholder.hidden = true;
+  };
+  image.onerror = () => {
+    image.hidden = true;
+    placeholder.hidden = false;
+  };
+  image.src = avatarUrl;
+}
+
+function chatBackgroundStorageKey() {
+  return `gadlink-chat-background:${user?.id || "guest"}`;
+}
+
+function applyChatBackground(preset, imageUrl = "") {
+  const chatView = byId("chat-view");
+  const validPreset = chatBackgroundPresets.has(preset) ? preset : "rose";
+  chatView.dataset.background = imageUrl ? "custom" : validPreset;
+  if (imageUrl) {
+    chatView.style.setProperty("--chat-custom-background", `url(${JSON.stringify(imageUrl)})`);
+  } else {
+    chatView.style.removeProperty("--chat-custom-background");
+  }
+  byId("chat-background-url").value = imageUrl;
+  document.querySelectorAll("[data-chat-background]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(!imageUrl && button.dataset.chatBackground === validPreset));
+  });
+}
+
+function loadChatBackgroundPreference() {
+  const storageKey = chatBackgroundStorageKey();
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const imageUrl = safeUrl(typeof saved.imageUrl === "string" ? saved.imageUrl : "");
+    const preset = chatBackgroundPresets.has(saved.preset) ? saved.preset : "rose";
+    applyChatBackground(preset, imageUrl);
+  } catch (error) {
+    console.error("GadLink chat background preference:", error);
+    setStatus("chat-background-status", `Не удалось загрузить сохранённый фон: ${error.message}`);
+    applyChatBackground("rose");
+  }
+}
+
+function saveChatBackgroundPreference(preset, imageUrl = "") {
+  const storageKey = chatBackgroundStorageKey();
+  localStorage.setItem(storageKey, JSON.stringify({ preset, imageUrl }));
+  applyChatBackground(preset, imageUrl);
+  setStatus("chat-background-status", imageUrl ? "Фон чата сохранён на этом устройстве." : "Градиент чата сохранён на этом устройстве.");
+}
+
 async function loadPublicNames(profileIds, statusId) {
   const ids = [...new Set(profileIds.filter(Boolean))];
   try {
@@ -277,11 +436,14 @@ function syncProfileFields(profile) {
   byId("profile-username").value = profile.username;
   byId("profile-about").value = profile.about;
   byId("profile-avatar").value = profile.avatar_url || "";
+  updateProfileAvatarPreview(profile.avatar_url);
   byId("menu-profile-username").value = profile.username;
   byId("profile-menu-name").textContent = currentUsername;
   updateMenuAvatar(profile.avatar_url);
   if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
   avatarPreviewUrl = null;
+  if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
+  profileAvatarPreviewUrl = null;
   byId("menu-avatar-file").value = "";
 }
 
@@ -292,6 +454,7 @@ async function loadProfile() {
   currentUsername = data?.username?.trim() || user.user_metadata?.username?.trim() || "Пользователь";
   byId("profile-about").value = data?.about || "";
   byId("profile-avatar").value = data?.avatar_url || "";
+  updateProfileAvatarPreview(data?.avatar_url);
   byId("menu-profile-username").value = currentUsername;
   currentAbout = data?.about || "";
   currentAvatarUrl = data?.avatar_url || null;
@@ -476,11 +639,13 @@ async function loadConversations() {
 
   directConversationByPeer.clear();
   for (const conversation of conversations || []) {
+    const conversationPeerIds = (participants || [])
+      .filter((row) => row.conversation_id === conversation.id && row.user_id !== ownerId)
+      .map((row) => row.user_id);
     if (!conversation.is_group) {
-      const peers = (participants || [])
-        .filter((row) => row.conversation_id === conversation.id && row.user_id !== ownerId)
-        .map((row) => row.user_id);
-      if (peers.length === 1) directConversationByPeer.set(peers[0], conversation.id);
+      if (conversationPeerIds.length === 1) {
+        directConversationByPeer.set(conversationPeerIds[0], conversation.id);
+      }
     }
 
     const item = document.createElement("li");
@@ -488,10 +653,13 @@ async function loadConversations() {
     item.dataset.type = conversation.is_group ? "group" : "personal";
     const button = document.createElement("button");
     button.type = "button";
-    const peers = (participants || [])
-      .filter((row) => row.conversation_id === conversation.id && row.user_id !== user.id)
-      .map((row) => namesByUserId.get(row.user_id)?.username || "Пользователь");
+    const peers = conversationPeerIds
+      .map((peerId) => namesByUserId.get(peerId)?.username || "Пользователь");
     const displayName = conversation.name || (peers.length ? peers.join(", ") : "Пользователь");
+    const peerProfile = conversationPeerIds.length === 1
+      ? namesByUserId.get(conversationPeerIds[0])
+      : { username: conversation.is_group ? "Группа" : displayName };
+    button.append(createAvatar(peerProfile, "conversation-avatar"));
     const title = document.createElement("span");
     title.className = "conversation-row__title";
     title.textContent = displayName;
@@ -503,9 +671,9 @@ async function loadConversations() {
     unread.hidden = true;
     button.append(title, preview, unread);
     item.dataset.conversationId = conversation.id;
-    conversationsById.set(conversation.id, { ...conversation, name: displayName });
+    conversationsById.set(conversation.id, { ...conversation, name: displayName, peerProfile });
     conversationOverviewRows.set(conversation.id, item);
-    button.addEventListener("click", () => openConversation({ ...conversation, name: displayName }));
+    button.addEventListener("click", () => openConversation({ ...conversation, name: displayName, peerProfile }));
     item.append(button);
     list.append(item);
   }
@@ -607,9 +775,14 @@ function addMessage(container, message) {
     const existing = [...container.querySelectorAll("[data-message-id]")]
       .find((item) => item.dataset.messageId === String(message.id));
     const author = existing?.querySelector(".message-author");
+    const profile = message.profiles || (message.user_id === user.id
+      ? { username: currentUsername, avatar_url: currentAvatarUrl }
+      : null);
     if (author) {
-      author.textContent = message.profiles?.username || (message.user_id === user.id ? currentUsername : "Пользователь");
+      author.textContent = profile?.username || "Пользователь";
     }
+    const currentAvatar = existing?.querySelector(".message-avatar");
+    if (currentAvatar) updateAvatarElement(currentAvatar, profile, "message-avatar");
     const content = existing?.querySelector(".message-content");
     if (content) content.textContent = message.content || "";
     return;
@@ -617,15 +790,22 @@ function addMessage(container, message) {
   const item = document.createElement("article");
   item.className = `message-item ${message.user_id === user.id ? "is-own" : "is-other"}`;
   if (message.id) item.dataset.messageId = message.id;
-  const author = addText(item, "strong", message.profiles?.username || (message.user_id === user.id ? currentUsername : "Пользователь"));
+  const profile = message.profiles || (message.user_id === user.id
+    ? { username: currentUsername, avatar_url: currentAvatarUrl }
+    : null);
+  item.append(createAvatar(profile, "message-avatar"));
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
+  const author = addText(bubble, "strong", profile?.username || "Пользователь");
   author.className = "message-author";
-  addText(item, "p", message.content).className = "message-content";
+  addText(bubble, "p", message.content).className = "message-content";
   const time = document.createElement("time");
   const createdAt = message.created_at ? new Date(message.created_at) : new Date();
   time.dateTime = createdAt.toISOString();
   time.textContent = createdAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   time.className = "message-time";
-  item.append(time);
+  bubble.append(time);
+  item.append(bubble);
   container.append(item);
   container.scrollTop = container.scrollHeight;
 }
@@ -643,6 +823,11 @@ async function openConversation(conversation) {
   const peerId = currentConversation.is_group
     ? null
     : [...directConversationByPeer.entries()].find(([, id]) => id === conversationId)?.[0];
+  updateAvatarElement(
+    byId("chat-peer-avatar"),
+    currentConversation.peerProfile || { username: currentConversation.name || "Группа" },
+    "chat-peer-avatar"
+  );
   const callButton = byId("chat-call-button");
   callButton.hidden = !isUuid(peerId) || peerId === user?.id;
   callButton.dataset.userId = peerId || "";
@@ -1119,6 +1304,7 @@ async function loadApp() {
     throw new Error("Сначала подтвердите адрес электронной почты.");
   }
   showApp(true);
+  loadChatBackgroundPreference();
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([
     loadProfile().catch((error) => {
@@ -1188,6 +1374,7 @@ async function loadApp() {
     console.error("GadLink notification route:", error);
     setStatus("chat-status", `Вы вошли, но не удалось открыть ссылку из уведомления: ${error.message}`);
   }
+  if (pushController.needsPrompt()) setPushSettingsDialogOpen(true);
 }
 
 function botAnswer(text) {
@@ -1285,9 +1472,15 @@ byId("community-add-open").addEventListener("click", () => {
   const open = menu.hidden;
   menu.hidden = !open;
   byId("community-add-open").setAttribute("aria-expanded", String(open));
-  if (open) menu.querySelector('[role="menuitem"]')?.focus();
+  if (open) {
+    const anchor = byId("community-add-open").getBoundingClientRect();
+    const left = Math.max(12, Math.min(window.innerWidth - menu.offsetWidth - 12, anchor.right - menu.offsetWidth));
+    const top = Math.max(12, Math.min(window.innerHeight - menu.offsetHeight - 12, anchor.bottom + 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.querySelector('[role="menuitem"]')?.focus();
+  }
 });
-byId("server-create-shortcut").addEventListener("click", () => openCommunityDialog("server-create-dialog"));
 byId("channel-create-open").addEventListener("click", () => {
   if (!currentServer) {
     setStatus("community-status", "Сначала выберите сервер.");
@@ -1740,6 +1933,30 @@ byId("profile-form").addEventListener("submit", async (event) => {
     submitButton.disabled = false;
     byId("profile-avatar-file").value = "";
   }
+});
+
+byId("profile-avatar-file").addEventListener("change", () => {
+  const file = byId("profile-avatar-file").files[0];
+  if (!file) return;
+  const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  if (!supportedTypes.includes(file.type)) {
+    setStatus("profile-status", "Используйте изображение JPG, PNG, WebP или GIF.");
+    byId("profile-avatar-file").value = "";
+    return;
+  }
+  if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
+  profileAvatarPreviewUrl = URL.createObjectURL(file);
+  byId("profile-avatar").value = "";
+  updateProfileAvatarPreview(profileAvatarPreviewUrl);
+});
+byId("profile-avatar").addEventListener("input", () => {
+  if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
+  profileAvatarPreviewUrl = null;
+  byId("profile-avatar-file").value = "";
+  updateProfileAvatarPreview(byId("profile-avatar").value);
+});
+byId("profile-username").addEventListener("input", () => {
+  if (byId("profile-avatar-preview-image").hidden) updateProfileAvatarPreview("");
 });
 
 byId("menu-avatar-file").addEventListener("change", () => {

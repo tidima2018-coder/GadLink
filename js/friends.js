@@ -35,6 +35,22 @@ export async function getPublicProfileNames(profileIds) {
       }
     ])
   );
+  const missingAvatarIds = ids.filter((id) => !profilesById.get(id)?.avatar_url);
+  if (missingAvatarIds.length) {
+    try {
+      const { data: avatarRows, error: avatarError } = await supabase
+        .from("profiles")
+        .select("id,avatar_url")
+        .in("id", missingAvatarIds);
+      if (avatarError) throw avatarError;
+      for (const profile of avatarRows || []) {
+        const existing = profilesById.get(profile.id);
+        if (existing) existing.avatar_url = profile.avatar_url || null;
+      }
+    } catch (error) {
+      console.error("GadLink public profile avatars:", error);
+    }
+  }
   for (const id of ids) {
     if (!profilesById.has(id)) {
       profilesById.set(id, { id, username: "Пользователь", avatar_url: null });
