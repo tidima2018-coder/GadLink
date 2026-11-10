@@ -1543,11 +1543,25 @@ byId("sign-up").addEventListener("click", async () => {
   showResendButton(false);
 
   try {
-    await registerWithEmail(email, byId("auth-password").value);
+    const registeredUser = await registerWithEmail(email, byId("auth-password").value);
+    if (registeredUser) {
+      user = registeredUser;
+      setStatus("auth-status", "");
+      await loadApp();
+      return;
+    }
+
     setStatus("auth-status", "Регистрация создана. Подтвердите почту по ссылке из письма, затем войдите в аккаунт. Если письма нет, запросите его повторно.");
     showResendButton(true);
   } catch (error) {
-    setStatus("auth-status", getAuthErrorMessage(error));
+    const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    if (confirmed) {
+      console.error("GadLink app initialization after sign-up:", error);
+      showApp(true);
+      setStatus("auth-status", `Аккаунт создан и выполнен вход, но приложение загрузилось не полностью: ${error.message}`);
+    } else {
+      setStatus("auth-status", getAuthErrorMessage(error));
+    }
     showResendButton(error.canResend);
   } finally {
     button.disabled = false;
@@ -1593,7 +1607,12 @@ byId("sign-out").addEventListener("click", async () => {
     switchStatus.textContent = `Не удалось сменить аккаунт: ${error.message}`;
     return;
   }
-  await voiceCallsController.shutdown();
+  try {
+    await voiceCallsController.shutdown();
+  } catch (error) {
+    console.error("GadLink voice sign-out cleanup:", error);
+    byId("calls-status").textContent = `Не удалось полностью закрыть звонок: ${error.message}`;
+  }
   user = null;
   reelsController?.reset();
   currentConversation = null;
@@ -2057,7 +2076,9 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
-    void voiceCallsController.shutdown();
+    void voiceCallsController.shutdown().catch((error) => {
+      console.error("GadLink voice auth cleanup:", error);
+    });
     void pushController.shutdown().catch((error) => {
       console.error("GadLink push auth cleanup:", error);
     });

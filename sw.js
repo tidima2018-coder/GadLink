@@ -1,9 +1,13 @@
-const CACHE_NAME = "gadlink-static-v2";
+const CACHE_NAME = "gadlink-static-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./confirm.html",
   "./style.css",
   "./app.js",
+  "./js/auth.js",
+  "./js/confirm.js",
+  "./js/supabaseClient.js",
   "./js/push-notifications.js",
   "./manifest.webmanifest",
   "./assets/gadlink-icon.svg"

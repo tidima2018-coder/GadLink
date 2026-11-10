@@ -29,6 +29,7 @@ function updateResendButton() {
 
 function showResend(message) {
   status.textContent = message;
+  status.className = "status error";
   resendButton.hidden = false;
   updateResendButton();
 }
@@ -47,25 +48,46 @@ async function handleConfirmation() {
     return;
   }
 
-  if (!hasAuthCallback(params)) {
-    showResend("Откройте ссылку из письма подтверждения или запросите новое письмо.");
-    return;
+  const tokenHash = params.get("token_hash");
+  const tokenType = params.get("type");
+  if (tokenHash) {
+    if (!["signup", "email"].includes(tokenType)) {
+      showResend("Ссылка подтверждения имеет неверный тип. Запросите новое письмо.");
+      clearAuthCallback();
+      return;
+    }
+
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: tokenType
+    });
+    if (error) throw error;
   }
 
   const user = await getCurrentUser();
   const pendingEmail = getPendingEmail().toLowerCase();
-  if (!user || (pendingEmail && user.email?.toLowerCase() !== pendingEmail)) {
+  const callbackDetected = hasAuthCallback(params);
+  const matchesPendingEmail = Boolean(
+    user && (!pendingEmail || user.email?.toLowerCase() === pendingEmail)
+  );
+  if (matchesPendingEmail) {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) throw error;
+    clearPendingEmail();
+    clearAuthCallback();
+    status.textContent = "Почта успешно подтверждена! Теперь вы можете войти";
+    status.className = "status success";
+    resendButton.hidden = true;
+    return;
+  }
+
+  if (callbackDetected || pendingEmail) {
     showResend("Не удалось подтвердить почту. Ссылка могла устареть или открыта в другом браузере.");
     clearAuthCallback();
     return;
   }
 
-  const { error } = await supabase.auth.signOut({ scope: "local" });
-  if (error) throw error;
-  clearPendingEmail();
-  clearAuthCallback();
-  status.textContent = "Почта успешно подтверждена! Теперь вы можете войти";
-  resendButton.hidden = true;
+  showResend("Откройте ссылку из письма подтверждения или запросите новое письмо.");
 }
 
 resendButton.addEventListener("click", async () => {
