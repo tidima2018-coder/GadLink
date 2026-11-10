@@ -780,7 +780,6 @@ window.addEventListener("gadlink:open-contact-chat", (event) => {
   void openContactChat(event.detail || {});
 });
 
-<<<<<<< HEAD
 byId("chat-call-button").addEventListener("click", (event) => {
   const peerId = event.currentTarget.dataset.userId;
   if (!isUuid(peerId) || peerId === user?.id) {
@@ -792,10 +791,6 @@ byId("chat-call-button").addEventListener("click", (event) => {
   }));
 });
 
-async function loadServers() {
-  const { data, error } = await supabase.from("servers").select("id,name").order("name");
-  if (error) throw error;
-=======
 function updateCommunityEmptyState(hasServers) {
   const empty = byId("community-empty");
   empty.classList.toggle("community-empty--no-servers", !hasServers);
@@ -806,7 +801,6 @@ function updateCommunityEmptyState(hasServers) {
     : "Создайте своё пространство или присоединитесь к серверу по ссылке-приглашению.";
   empty.querySelectorAll("[data-community-action]").forEach((button) => { button.hidden = hasServers; });
 }
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
 
 async function loadServers() {
   const list = byId("server-list");
@@ -1852,7 +1846,7 @@ byId("server-form").addEventListener("submit", async (event) => {
       created_by: user.id,
       server_type: form.querySelector('[name="server-type"]:checked')?.value || "friends",
       is_private: byId("server-private").checked,
-      description: byId("server-description").value.trim(),
+      description: byId("server-description-input").value.trim(),
       avatar_path: avatarPath
     }).select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by").single();
     if (error) throw error;
@@ -2039,10 +2033,8 @@ supabase.auth.onAuthStateChange((_event, session) => {
     chatSubscription = null;
     if (conversationMembershipSubscription) void supabase.removeChannel(conversationMembershipSubscription);
     conversationMembershipSubscription = null;
-<<<<<<< HEAD
     if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
     chatOverviewSubscription = null;
-=======
     if (channelSubscription) void supabase.removeChannel(channelSubscription);
     channelSubscription = null;
     currentChannel = null;
@@ -2050,7 +2042,6 @@ supabase.auth.onAuthStateChange((_event, session) => {
     byId("server-list").replaceChildren();
     byId("server-view").hidden = true;
     updateCommunityEmptyState(false);
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
     conversationLoadVersion += 1;
     clearTimeout(conversationSyncTimer);
     conversationSyncTimer = null;

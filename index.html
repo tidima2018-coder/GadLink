@@ -92,11 +92,7 @@
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0Z"/></svg>
           <span>Контакты</span>
         </button>
-<<<<<<< HEAD
-        <button type="button" data-section="calls-section" aria-label="Calls">
-=======
         <button type="button" data-section="calls-section" aria-label="Звонки">
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>
           <span>Звонки</span>
         </button>
@@ -265,14 +261,6 @@
   <h3>Мои друзья</h3>
   <div id="friends-list"></div>
 </section>
-      <section id="calls-section" class="page-section calls-section" hidden>
-        <h2>Звонки</h2>
-        <div class="calls-empty">
-          <span aria-hidden="true">☎</span>
-          <h3>Звонки скоро появятся</h3>
-          <p>Мы готовим голосовые и видеозвонки для GadLink.</p>
-        </div>
-      </section>
       <section id="communities-section" class="page-section" hidden>
         <header class="communities-header">
           <div>
@@ -349,7 +337,6 @@
     </div>
   </main>
 
-<<<<<<< HEAD
   <div id="voice-call-dialog" class="voice-call-dialog" role="dialog" aria-modal="true" aria-labelledby="voice-call-name" hidden>
     <div class="voice-call-dialog__panel">
       <img id="voice-call-avatar" class="voice-call-avatar" alt="" hidden>
@@ -370,7 +357,8 @@
         <button id="voice-call-hangup" class="voice-call-end" type="button">Завершить звонок</button>
       </div>
     </div>
-=======
+  </div>
+
   <div id="server-create-dialog" class="community-dialog" role="dialog" aria-modal="true" aria-labelledby="server-create-title" hidden inert>
     <button class="community-dialog__backdrop" type="button" data-dialog-close="server-create-dialog" aria-label="Закрыть создание сервера"></button>
     <section class="community-dialog__panel">
@@ -407,8 +395,8 @@
           <span class="community-switch__track" aria-hidden="true"></span>
         </label>
         <div class="community-field">
-          <label for="server-description">Описание <span>(необязательно)</span></label>
-          <textarea id="server-description" maxlength="300" placeholder="О чём этот сервер?"></textarea>
+          <label for="server-description-input">Описание <span>(необязательно)</span></label>
+          <textarea id="server-description-input" maxlength="300" placeholder="О чём этот сервер?"></textarea>
         </div>
         <p id="server-create-status" class="community-form-status" role="alert"></p>
         <button class="community-submit" type="submit">Создать сервер</button>
@@ -496,8 +484,7 @@
         <button class="community-submit" type="submit">Присоединиться к серверу</button>
       </form>
     </section>
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
-  </div>
+      </div>
 
   <div id="friend-add-dialog" class="friend-add-dialog" role="dialog" aria-modal="true" aria-labelledby="friend-add-title" hidden inert>
     <button class="friend-add-dialog__backdrop" type="button" aria-label="Закрыть поиск контактов"></button>
