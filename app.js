@@ -780,7 +780,6 @@ window.addEventListener("gadlink:open-contact-chat", (event) => {
   void openContactChat(event.detail || {});
 });
 
-<<<<<<< HEAD
 byId("chat-call-button").addEventListener("click", (event) => {
   const peerId = event.currentTarget.dataset.userId;
   if (!isUuid(peerId) || peerId === user?.id) {
@@ -792,10 +791,6 @@ byId("chat-call-button").addEventListener("click", (event) => {
   }));
 });
 
-async function loadServers() {
-  const { data, error } = await supabase.from("servers").select("id,name").order("name");
-  if (error) throw error;
-=======
 function updateCommunityEmptyState(hasServers) {
   const empty = byId("community-empty");
   empty.classList.toggle("community-empty--no-servers", !hasServers);
@@ -806,19 +801,35 @@ function updateCommunityEmptyState(hasServers) {
     : "Создайте своё пространство или присоединитесь к серверу по ссылке-приглашению.";
   empty.querySelectorAll("[data-community-action]").forEach((button) => { button.hidden = hasServers; });
 }
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
 
 async function loadServers() {
   const list = byId("server-list");
   try {
-    const { data, error } = await supabase.from("servers")
+    let { data, error } = await supabase.from("servers")
       .select("id,name,description,server_type,is_private,avatar_path,invite_code,created_by")
       .order("name");
-    if (error) throw error;
-    const { data: memberships, error: membershipsError } = await supabase.from("server_members")
+    let schemaWarning = "";
+    if (error) {
+      const missingOptionalColumns = error.code === "42703"
+        || (error.code === "PGRST204" && /column/i.test(error.message));
+      if (!missingOptionalColumns) throw error;
+      const fallback = await supabase.from("servers").select("id,name,created_by").order("name");
+      if (fallback.error) throw fallback.error;
+      data = fallback.data;
+      schemaWarning = "Для полного функционала серверов примените supabase/community_setup.sql.";
+    }
+
+    const membershipResult = await supabase.from("server_members")
       .select("server_id")
       .eq("user_id", user.id);
-    if (membershipsError) throw membershipsError;
+    let memberships = membershipResult.data;
+    if (membershipResult.error) {
+      const missingMembershipTable = membershipResult.error.code === "42P01"
+        || (membershipResult.error.code === "PGRST205" && /server_members/i.test(membershipResult.error.message));
+      if (!missingMembershipTable) throw membershipResult.error;
+      memberships = [];
+      schemaWarning = "Показаны созданные вами серверы. Для присоединения и полного функционала примените supabase/community_setup.sql.";
+    }
     const memberServerIds = new Set((memberships || []).map((membership) => membership.server_id));
     const servers = (data || []).filter((server) => memberServerIds.has(server.id) || server.created_by === user.id);
 
@@ -864,9 +875,17 @@ async function loadServers() {
       byId("communities-section").classList.remove("is-detail-open", "is-channel-open");
     }
     updateCommunityEmptyState(Boolean(servers.length));
-    if (!servers.length) setStatus("community-status", "");
+    setStatus("community-status", schemaWarning);
   } catch (error) {
     console.error("GadLink servers load:", error);
+    list.replaceChildren();
+    currentServer = null;
+    currentChannel = null;
+    byId("server-view").hidden = true;
+    byId("communities-section").classList.remove("is-detail-open", "is-channel-open");
+    updateCommunityEmptyState(false);
+    byId("community-empty").querySelector("h3").textContent = "Не удалось загрузить серверы";
+    byId("community-empty").querySelector("p").textContent = "Проверьте подключение и настройки базы данных.";
     setStatus("community-status", `Не удалось загрузить серверы: ${error.message}. Проверьте схему из supabase/community_setup.sql.`);
   }
 }
@@ -2039,10 +2058,8 @@ supabase.auth.onAuthStateChange((_event, session) => {
     chatSubscription = null;
     if (conversationMembershipSubscription) void supabase.removeChannel(conversationMembershipSubscription);
     conversationMembershipSubscription = null;
-<<<<<<< HEAD
     if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
     chatOverviewSubscription = null;
-=======
     if (channelSubscription) void supabase.removeChannel(channelSubscription);
     channelSubscription = null;
     currentChannel = null;
@@ -2050,7 +2067,6 @@ supabase.auth.onAuthStateChange((_event, session) => {
     byId("server-list").replaceChildren();
     byId("server-view").hidden = true;
     updateCommunityEmptyState(false);
->>>>>>> 02e15f61d1e8cce5b48a68f6610732923463dc26
     conversationLoadVersion += 1;
     clearTimeout(conversationSyncTimer);
     conversationSyncTimer = null;

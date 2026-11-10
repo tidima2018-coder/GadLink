@@ -1681,6 +1681,7 @@ main {
 }
 .community-layout:has(.community-empty--no-servers:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
 .community-layout:has(.community-empty--no-servers:not([hidden])) .community-server-panel { display: none; }
+#communities-section:has(.community-empty--no-servers:not([hidden])) .community-add-button { display: none; }
 .community-server-panel, .community-detail {
   min-width: 0;
   padding: 17px;
@@ -1908,7 +1909,14 @@ main {
   background: rgba(0,0,0,.72);
   backdrop-filter: blur(5px);
 }
-.community-dialog__backdrop:hover { background: rgba(0,0,0,.72); }
+button.community-dialog__backdrop:hover:not(:disabled),
+button.community-dialog__backdrop:active:not(:disabled) {
+  color: inherit;
+  border-color: transparent;
+  background: rgba(0,0,0,.72);
+  box-shadow: none;
+  transform: none;
+}
 .community-dialog__panel {
   position: relative;
   z-index: 1;
@@ -2193,18 +2201,21 @@ main {
   #communities-section.is-channel-open #channel-empty { display: none; }
   #communities-section.is-channel-open #channel-view:not([hidden]) { display: block; min-height: 55dvh; }
   #channel-messages { max-height: 38dvh; }
-  .community-dialog { z-index: 180; align-items: end; padding: 0; }
+  .community-dialog {
+    z-index: 180;
+    align-items: center;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
   .community-dialog__panel, .community-dialog__panel--compact {
-    width: 100%;
+    width: min(100%, 470px);
     max-height: min(94dvh, 850px);
     padding: 14px 17px max(16px, env(safe-area-inset-bottom));
     border: 1px solid rgba(255,255,255,.08);
-    border-bottom: 0;
-    border-radius: 21px 21px 0 0;
+    border-radius: 21px;
     background: #202023;
-    transform: translateY(24px);
+    transform: translateY(10px) scale(.99);
   }
-  .community-dialog.is-open .community-dialog__panel { transform: translateY(0); }
+  .community-dialog.is-open .community-dialog__panel { transform: translateY(0) scale(1); }
   .community-add-menu { top: auto; right: 12px; bottom: calc(70px + env(safe-area-inset-bottom)); }
   .community-dialog__heading { position: sticky; top: -14px; z-index: 2; padding: 4px 0 9px; background: #202023; }
   #server-form, #channel-form { gap: 10px; }
@@ -2217,4 +2228,48 @@ main {
 }
 @media (prefers-reduced-motion: reduce) {
   .community-dialog, .community-dialog__panel, .community-switch__track, .community-switch__track::after { transition-duration: .01ms; }
+}
+
+@media (min-width: 721px) {
+  #app:has(#chats-section:not([hidden]))::after { display: none; }
+  #chats-section {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    grid-template-rows: auto 42px auto auto auto minmax(0, 1fr);
+    gap: 0 24px;
+    grid-column: 2 / 4;
+    grid-row: 1;
+    width: auto;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 22px clamp(18px, 3vw, 42px);
+    overflow: hidden;
+    background: transparent;
+  }
+  #chats-section > h2 { display: none; }
+  #chats-section > .notification-settings { grid-column: 1; grid-row: 1; margin: 0 0 10px; }
+  #chats-section .conversation-search-row { grid-column: 1; grid-row: 2; }
+  #chats-section .chat-notice { grid-column: 1; grid-row: 3; }
+  #chats-section .conversation-filters { grid-column: 1; grid-row: 4; }
+  #chats-section #chat-status { grid-column: 1; grid-row: 5; }
+  #chats-section #conversation-list { grid-column: 1; grid-row: 6; min-height: 0; overflow-y: auto; }
+  #chats-section #conversation-empty { grid-column: 1; grid-row: 6; align-self: start; }
+  #chat-view:not([hidden]) {
+    display: grid;
+    grid-column: 2;
+    grid-row: 1 / -1;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: clamp(18px, 2.5vw, 32px);
+    overflow: hidden;
+  }
+  #chat-title { margin-bottom: 8px; }
+  #messages { min-height: 0; max-height: none; }
+  #message-form { align-self: end; }
 }
