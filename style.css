@@ -787,8 +787,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .reels-tabs button { min-height: 38px; padding: 0 16px; color: #aaa7ac; border: 0; border-radius: 999px; background: transparent; }
 .reels-tabs button.is-selected { color: #f1b1bb; background: rgba(222,140,152,.12); }
 .reels-tabs button:disabled { opacity: .55; cursor: not-allowed; }
-.reels-search { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid rgba(255,255,255,.04); border-radius: 999px; color: #939096; background: #171719; }
-.reels-search > span { font-size: 21px; line-height: 1; }
+.reels-search { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 0 20px; border: 1px solid rgba(255,255,255,.04); border-radius: 999px; color: #939096; background: #171719; }
+.reels-search > span { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; font-size: 21px; line-height: 1; }
 .reels-search input { width: 100%; min-width: 0; min-height: 38px; padding: 0; border: 0; border-radius: 0; color: var(--text); font-size: 12px; background: transparent; box-shadow: none; }
 .reels-search input:focus { border: 0; box-shadow: none; }
 #reels-status { min-height: 1.2em; max-width: 780px; margin: 2px auto 8px; color: #c8a9af; font-size: 10px; opacity: .42; text-align: center; transition: opacity .18s; }
@@ -1522,7 +1522,7 @@ main {
   #reels-section .reels-search {
     grid-column: 1 / -1;
     min-height: 34px;
-    padding-inline: 9px;
+    padding-inline: 20px;
   }
   #reels-section .reels-search input { min-height: 32px; }
   #reels-status {
