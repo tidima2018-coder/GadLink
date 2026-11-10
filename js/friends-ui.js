@@ -271,23 +271,7 @@ if (
         }));
       });
 
-      const callButton = document.createElement("button");
-      callButton.type = "button";
-      callButton.className = "contact-call-button";
-      callButton.setAttribute("aria-label", `Позвонить ${name.textContent}`);
-      callButton.title = "Голосовой звонок";
-      callButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>';
-      callButton.addEventListener("click", () => {
-        window.dispatchEvent(new CustomEvent("gadlink:start-voice-call", {
-          detail: {
-            userId: profile.id,
-            username: profile.username || "Пользователь",
-            avatarUrl: profile.avatar_url || null
-          }
-        }));
-      });
-
-      row.append(identity, chatButton, callButton);
+      row.append(identity, chatButton);
       contactsList.append(row);
     }
   }
@@ -345,15 +329,6 @@ if (
           detail: { userId: friend.id, username: friend.username || "Пользователь" }
         }));
       });
-      const call = createButton("Позвонить", () => {
-        window.dispatchEvent(new CustomEvent("gadlink:start-voice-call", {
-          detail: {
-            userId: friend.id,
-            username: friend.username || "Пользователь",
-            avatarUrl: friend.avatar_url || null
-          }
-        }));
-      });
       const remove = createButton(
         "Удалить из друзей",
         async () => {
@@ -367,7 +342,7 @@ if (
       friendsBox.append(
         personCard(
           friend,
-          [message, call, remove]
+          [message, remove]
         )
       );
     }
