@@ -1050,15 +1050,27 @@ main {
   min-height: 36px;
 }
 #app > nav #menu-toggle span {
-  width: 11px;
-  height: 1.5px;
+  width: 15px;
+  height: 2px;
   border-radius: 2px;
   background: #e8e5e8;
   transition: transform .2s ease, opacity .16s ease;
 }
-#menu-toggle.is-open span:first-child { transform: translateY(4.5px) rotate(45deg); }
+#menu-toggle.is-open span:first-child { transform: translateY(5px) rotate(45deg); }
 #menu-toggle.is-open span:nth-child(2) { opacity: 0; }
-#menu-toggle.is-open span:last-child { transform: translateY(-4.5px) rotate(-45deg); }
+#menu-toggle.is-open span:last-child { transform: translateY(-5px) rotate(-45deg); }
+.menu-close-icon { display: none; }
+#menu-toggle.is-open > span { display: none; }
+#menu-toggle.is-open .menu-close-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #f2edf0;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .profile-menu {
   position: fixed;
   z-index: 80;
@@ -3151,9 +3163,36 @@ select:focus-visible {
   opacity: 0;
   pointer-events: none;
   transition: opacity .18s ease;
+  isolation: isolate;
 }
 .push-settings-dialog[hidden] { display: none !important; }
 .push-settings-dialog.is-open { opacity: 1; pointer-events: auto; }
+#push-settings-dialog > .push-settings-dialog__panel {
+  position: relative;
+  z-index: 1;
+  width: min(440px, calc(100vw - 32px));
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  max-height: min(88dvh, 640px);
+  flex: 0 1 auto;
+  margin: 0;
+  padding: clamp(22px, 5vw, 32px);
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 95% 0, rgba(222,140,152,.18), transparent 48%),
+    linear-gradient(150deg, #29262c, #171619 78%);
+  box-shadow: 0 30px 90px rgba(0,0,0,.48), inset 0 1px rgba(255,255,255,.05);
+  transform: translateY(14px) scale(.96);
+  opacity: 0;
+  transition: transform .24s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+}
+#push-settings-dialog.is-open > .push-settings-dialog__panel {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
 .push-settings-dialog__backdrop {
   position: absolute;
   inset: 0;
@@ -3162,30 +3201,15 @@ select:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: rgba(5,5,8,.76);
-  backdrop-filter: blur(9px);
+  background: rgba(5,5,8,.3);
+  backdrop-filter: blur(3px);
 }
 .push-settings-dialog__backdrop:hover:not(:disabled),
-.push-settings-dialog__backdrop:active:not(:disabled) { background: rgba(5,5,8,.76); box-shadow: none; transform: none; }
-.push-settings-dialog .notification-settings {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 480px);
-  max-height: min(88dvh, 640px);
-  margin: 0;
-  padding: clamp(24px, 5vw, 36px);
-  overflow: auto;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 26px;
-  background:
-    radial-gradient(ellipse at 95% 0, rgba(222,140,152,.18), transparent 48%),
-    linear-gradient(150deg, #29262c, #171619 78%);
-  box-shadow: 0 30px 110px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.05);
-}
-.push-settings-dialog .notification-settings h3 { margin: 0 32px 10px 0; font-size: 22px; }
-.push-settings-dialog .notification-settings > p:first-of-type { margin-bottom: 18px; line-height: 1.6; }
-.push-settings-dialog .notification-settings > #push-toggle { min-height: 50px; border-radius: 15px; font-size: 14px; }
-.push-settings-dialog .notification-settings > .push-settings-dialog__close {
+.push-settings-dialog__backdrop:active:not(:disabled) { background: rgba(5,5,8,.3); box-shadow: none; transform: none; }
+#push-settings-dialog .push-settings-dialog__panel h3 { margin: 0 32px 10px 0; font-size: 22px; }
+#push-settings-dialog .push-settings-dialog__panel > p:first-of-type { margin-bottom: 18px; line-height: 1.6; }
+#push-settings-dialog .push-settings-dialog__panel > #push-toggle { min-height: 50px; border-radius: 15px; font-size: 14px; }
+#push-settings-dialog .push-settings-dialog__panel > .push-settings-dialog__close {
   position: absolute;
   top: 14px;
   right: 14px;
@@ -3199,7 +3223,7 @@ select:focus-visible {
   background: #2b2a2e;
   font-size: 23px;
 }
-.push-settings-dialog .notification-settings > .push-settings-dialog__later {
+#push-settings-dialog .push-settings-dialog__panel > .push-settings-dialog__later {
   width: 100%;
   margin-top: 8px;
   color: #c6bdc4 !important;
@@ -3232,15 +3256,17 @@ body.push-settings-open { overflow: hidden; }
     radial-gradient(ellipse at 90% 92%, rgba(72,70,119,.11), transparent 40%);
 }
 @media (max-width: 720px) {
+  #app > nav #menu-toggle .menu-close-icon { display: none !important; }
   .chat-settings-link { min-height: 34px; }
   .chat-background-settings { padding-inline: 10px; }
   #profile-section { align-items: stretch; padding-bottom: 90px; }
   #profile-form { padding: 18px; }
   #messages .message-item { max-width: 94%; }
-  .push-settings-dialog .notification-settings { border-radius: 22px; }
+  #push-settings-dialog > .push-settings-dialog__panel { border-radius: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .push-settings-dialog { transition-duration: .01ms; }
+  .push-settings-dialog,
+  #push-settings-dialog > .push-settings-dialog__panel { transition-duration: .01ms; }
 }
 
 .reels-search > span svg {

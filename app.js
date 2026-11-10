@@ -122,7 +122,7 @@ function setPushSettingsDialogOpen(isOpen, rememberDismissal = false) {
     dialog.hidden = true;
     dialog.removeAttribute("inert");
     pushSettingsCloseTimer = null;
-  }, 180);
+  }, 240);
   if (pushSettingsOpener?.isConnected && !pushSettingsOpener.closest("[hidden]")) {
     pushSettingsOpener.focus();
   }
@@ -1303,7 +1303,6 @@ async function loadApp() {
     console.error("GadLink notification route:", error);
     setStatus("chat-status", `Вы вошли, но не удалось открыть ссылку из уведомления: ${error.message}`);
   }
-  if (pushController.needsPrompt()) setPushSettingsDialogOpen(true);
 }
 
 function botAnswer(text) {
