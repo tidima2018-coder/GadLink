@@ -69,7 +69,15 @@ export function createPushNotifications({ supabase, getUser }) {
     toggleButton.textContent = enabled ? "Отключить на этом устройстве" : "Включить уведомления";
     previewOption.hidden = !enabled;
     if (!supported) {
-      setStatus("Push-уведомления не поддерживаются этим браузером.");
+      const isAppleMobile = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      setStatus(isAppleMobile
+        ? "На iPhone/iPad Push доступны в iOS/iPadOS 16.4+ после добавления GadLink на экран «Домой»."
+        : "Push-уведомления не поддерживаются этим браузером. Попробуйте актуальную версию Chrome, Edge, Firefox или Safari.");
+    } else if (!window.isSecureContext) {
+      toggleButton.disabled = true;
+      setStatus("Для Push-уведомлений откройте GadLink через HTTPS или localhost.");
+    } else if (Notification.permission === "denied") {
+      setStatus("Уведомления заблокированы. Разрешите их для GadLink в настройках браузера и попробуйте снова.");
     }
   }
 
@@ -107,7 +115,8 @@ export function createPushNotifications({ supabase, getUser }) {
   }
 
   async function enable() {
-    if (!getUser()?.id) throw new Error("Войдите в аккаунт, чтобы включить уведомления.");
+    const owner = getUser();
+    if (!owner?.id) throw new Error("Войдите в аккаунт, чтобы включить уведомления.");
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
       throw new Error("Push API недоступен в этом браузере.");
     }
@@ -121,7 +130,10 @@ export function createPushNotifications({ supabase, getUser }) {
     if (permission !== "granted") {
       throw new Error(permission === "denied"
         ? "Уведомления запрещены в настройках браузера."
-        : "Разрешение на уведомления не получено.");
+        : "Разрешение на уведомления не получено. Нажмите «Включить уведомления» и выберите «Разрешить».");
+    }
+    if (getUser()?.id !== owner.id) {
+      throw new Error("Аккаунт изменился. Войдите снова и включите уведомления.");
     }
 
     registration ||= await navigator.serviceWorker.register(
@@ -130,6 +142,9 @@ export function createPushNotifications({ supabase, getUser }) {
     );
     await navigator.serviceWorker.ready;
     const vapidPublicKey = await getVapidPublicKey();
+    if (getUser()?.id !== owner.id) {
+      throw new Error("Аккаунт изменился. Войдите снова и включите уведомления.");
+    }
     let subscription = await registration.pushManager.getSubscription();
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
@@ -142,7 +157,6 @@ export function createPushNotifications({ supabase, getUser }) {
     if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
       throw new Error("Браузер вернул неполную Push-подписку.");
     }
-    const owner = getUser();
     const { error } = await supabase.from("push_subscriptions").upsert({
       user_id: owner.id,
       endpoint: json.endpoint,
@@ -238,6 +252,9 @@ export function createPushNotifications({ supabase, getUser }) {
       return;
     }
     await loadSubscription();
+    if (!endpoint && Notification.permission !== "denied") {
+      setStatus("Push пока не включены на этом устройстве. Нажмите кнопку и разрешите уведомления в запросе браузера.");
+    }
   }
 
   async function shutdown() {

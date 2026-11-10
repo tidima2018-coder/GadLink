@@ -47,18 +47,6 @@
         <button type="submit">Обновить пароль</button>
       </form>
       <p id="password-status" class="profile-menu__status" role="status"></p>
-      <section class="notification-settings" aria-labelledby="notification-settings-title">
-        <h3 id="notification-settings-title">Уведомления</h3>
-        <p>Push работают, когда сайт закрыт. На iPhone установите GadLink на экран «Домой» и откройте приложение оттуда.</p>
-        <button id="push-toggle" type="button">Включить уведомления</button>
-        <button id="pwa-install" type="button" hidden>Установить GadLink</button>
-        <p id="pwa-install-status" class="profile-menu__status" role="status"></p>
-        <label id="push-preview-option" class="push-preview-option" hidden>
-          <input id="push-show-preview" type="checkbox">
-          Показывать текст сообщений в уведомлениях
-        </label>
-        <p id="push-status" class="profile-menu__status" role="status"></p>
-      </section>
       <button class="profile-menu__action" type="button" data-section="profile-section">
         <span aria-hidden="true">⚙</span>
         <span>О себе и профиль</span>
@@ -194,6 +182,18 @@
 
       <section id="chats-section" class="page-section">
         <h2>чаты</h2>
+        <section class="notification-settings" aria-labelledby="notification-settings-title">
+          <h3 id="notification-settings-title">Push-уведомления</h3>
+          <p>Нажмите «Включить уведомления» и разрешите их в браузере. Для Push нужен HTTPS; на iPhone/iPad установите GadLink на экран «Домой» (iOS/iPadOS 16.4+).</p>
+          <button id="push-toggle" type="button">Включить уведомления</button>
+          <button id="pwa-install" type="button" hidden>Установить GadLink</button>
+          <p id="pwa-install-status" class="profile-menu__status" role="status"></p>
+          <label id="push-preview-option" class="push-preview-option" hidden>
+            <input id="push-show-preview" type="checkbox">
+            Показывать текст сообщений в уведомлениях
+          </label>
+          <p id="push-status" class="profile-menu__status" role="status"></p>
+        </section>
         <label class="conversation-search-row" for="conversation-search">
           <span aria-hidden="true">⌕</span>
           <input id="conversation-search" type="search" placeholder="Search" autocomplete="off">
