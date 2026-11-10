@@ -319,7 +319,7 @@ export function createReelsFeed({ supabase, getUser }) {
     const stage = card.querySelector(".reel-stage");
     const ratio = video.videoWidth / video.videoHeight;
     const isMobile = window.matchMedia("(max-width: 720px)").matches;
-    const availableWidth = Math.max(0, card.clientWidth - (isMobile ? 0 : 220));
+    const availableWidth = Math.max(0, card.clientWidth - (isMobile ? 66 : 220));
     const availableHeight = card.clientHeight;
     if (!availableWidth || !availableHeight) return;
 
