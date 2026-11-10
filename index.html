@@ -82,7 +82,7 @@
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0Z"/></svg>
           <span>Contacts</span>
         </button>
-        <button type="button" class="nav-coming-soon" disabled aria-label="Calls">
+        <button type="button" data-section="calls-section" aria-label="Calls">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>
           <span>Calls</span>
         </button>
@@ -165,7 +165,12 @@
         <ul id="conversation-list"></ul>
         <p id="conversation-empty" hidden>Диалоги не найдены</p>
         <div id="chat-view" hidden>
-          <h3 id="chat-title"></h3>
+          <div class="chat-view__header">
+            <h3 id="chat-title"></h3>
+            <button id="chat-call-button" class="voice-call-icon-button" type="button" aria-label="Позвонить" title="Голосовой звонок" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>
+            </button>
+          </div>
           <div id="messages" aria-live="polite"></div>
           <form id="message-form">
             <label for="message-content">сообщение</label>
@@ -175,7 +180,13 @@
         </div>
       </section>
 
-      
+      <section id="calls-section" class="page-section" hidden>
+        <h2>Звонки</h2>
+        <p id="calls-status" role="status"></p>
+        <div id="call-history" class="call-history" aria-live="polite"></div>
+      </section>
+
+
 <section id="friends-section" class="page-section" hidden>
   <h2>Друзья</h2>
 
@@ -236,13 +247,35 @@
     </div>
   </main>
 
+  <div id="voice-call-dialog" class="voice-call-dialog" role="dialog" aria-modal="true" aria-labelledby="voice-call-name" hidden>
+    <div class="voice-call-dialog__panel">
+      <img id="voice-call-avatar" class="voice-call-avatar" alt="" hidden>
+      <div id="voice-call-avatar-placeholder" class="voice-call-avatar-placeholder" aria-hidden="true">?</div>
+      <h2 id="voice-call-name">Звонок</h2>
+      <p id="voice-call-status" role="status">Подготовка звонка…</p>
+      <time id="voice-call-timer" hidden>00:00</time>
+      <audio id="voice-call-remote-audio" autoplay playsinline></audio>
+      <div id="voice-call-incoming-actions" class="voice-call-actions" hidden>
+        <button id="voice-call-accept" class="voice-call-accept" type="button">Принять</button>
+        <button id="voice-call-reject" class="voice-call-end" type="button">Отклонить</button>
+      </div>
+      <div id="voice-call-active-actions" class="voice-call-actions" hidden>
+        <button id="voice-call-mute" type="button" aria-pressed="false">Выключить микрофон</button>
+        <label class="voice-call-volume" for="voice-call-volume">Звук
+          <input id="voice-call-volume" type="range" min="0" max="1" step="0.05" value="1">
+        </label>
+        <button id="voice-call-hangup" class="voice-call-end" type="button">Завершить звонок</button>
+      </div>
+    </div>
+  </div>
+
   <div id="friend-add-dialog" class="friend-add-dialog" role="dialog" aria-modal="true" aria-labelledby="friend-add-title" hidden inert>
     <button class="friend-add-dialog__backdrop" type="button" aria-label="Закрыть поиск контактов"></button>
     <section class="friend-add-dialog__panel">
       <div class="friend-add-dialog__heading">
         <h2 id="friend-add-title">Добавить контакт</h2>
         <button id="friend-add-close" type="button" aria-label="Закрыть">×</button>
-      </div>
+        </div>
       <p class="friend-add-dialog__hint">Найдите человека по нику и отправьте заявку в друзья.</p>
       <form id="friend-search-form">
         <input id="friend-search" type="search" placeholder="Поиск по нику" autocomplete="off" required>

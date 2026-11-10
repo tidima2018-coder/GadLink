@@ -1214,11 +1214,109 @@ main {
     bottom: 74px;
   }
 }
+.voice-call-icon-button,
+.contact-call-button {
+  display: inline-grid;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(222,140,152,.28);
+  border-radius: 50%;
+  color: #f0adb7;
+  background: #2a2529;
+}
+.voice-call-icon-button:hover,
+.contact-call-button:hover {
+  color: #fff;
+  background: #493039;
+}
+.voice-call-icon-button svg,
+.contact-call-button svg,
+.call-history__callback svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.chat-view__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-view__header h3 { min-width: 0; overflow-wrap: anywhere; }
+.contact-row { justify-content: flex-start; }
+.contact-identity { flex: 1 1 auto; }
+.contact-chat-button { flex: 0 0 auto; }
+.voice-call-dialog {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0,0,0,.76);
+  backdrop-filter: blur(12px);
+}
+.voice-call-dialog__panel {
+  display: flex;
+  width: min(420px, 100%);
+  max-height: min(90dvh, 700px);
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: clamp(24px, 6vw, 42px);
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 28px;
+  background: linear-gradient(155deg, #29262b, #171719 72%);
+  box-shadow: 0 30px 100px rgba(0,0,0,.55);
+  text-align: center;
+}
+.voice-call-avatar,
+.voice-call-avatar-placeholder {
+  width: 112px;
+  height: 112px;
+  flex: 0 0 112px;
+  border: 2px solid rgba(240,173,183,.55);
+  border-radius: 50%;
+  object-fit: cover;
+  background: radial-gradient(circle at 35% 25%, #f0adb7, #89505d 72%);
+  box-shadow: 0 8px 34px rgba(222,140,152,.2);
+}
+.voice-call-avatar-placeholder { display: grid; place-items: center; color: #28171b; font-size: 40px; font-weight: 700; }
+.voice-call-dialog__panel h2 { max-width: 100%; margin: 4px 0 0; overflow-wrap: anywhere; font-size: clamp(22px, 5vw, 28px); }
+#voice-call-status { min-height: 1.5em; margin: 0; color: #c9c2c8; overflow-wrap: anywhere; }
+#voice-call-timer { color: #f0adb7; font-variant-numeric: tabular-nums; font-size: 20px; }
+#voice-call-remote-audio { width: 1px; height: 1px; opacity: 0; }
+.voice-call-actions { display: flex; width: 100%; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+.voice-call-actions[hidden] { display: none; }
+.voice-call-actions button { min-height: 46px; }
+.voice-call-accept { color: #fff; border-color: transparent; background: #398866; }
+.voice-call-accept:hover { background: #46a079; }
+.voice-call-end { color: #fff; border-color: transparent; background: #a94253; }
+.voice-call-end:hover { background: #c75264; }
+#voice-call-mute[aria-pressed="true"] { border-color: rgba(240,173,183,.5); color: #fff; background: #50333c; }
+.voice-call-volume { display: grid; min-width: 100px; gap: 2px; color: var(--muted); font-size: 12px; }
+.voice-call-volume input { width: 100%; min-height: 22px; accent-color: var(--accent); }
+.call-history { display: grid; gap: 8px; }
+.call-history-empty { padding: 24px; color: var(--muted); text-align: center; }
+.call-history__row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: rgba(30,29,32,.8); }
+.call-history__details { display: grid; min-width: 0; gap: 2px; }
+.call-history__details strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-history__details span,
+.call-history__details time { color: var(--muted); font-size: 13px; }
+.call-history__row--missed .call-history__details span { color: #efa3ad; }
+.call-history__callback { display: grid; width: 40px; min-width: 40px; min-height: 40px; place-items: center; padding: 0; border-radius: 50%; color: #f0adb7; background: #30272c; }
+.call-history__callback:hover { color: #fff; background: #493039; }
 @media (prefers-reduced-motion: reduce) {
   #menu-toggle span,
   .profile-menu,
   .profile-menu__panel,
   .friend-add-dialog,
   .friend-add-dialog__panel,
-  .add-contact-button { transition-duration: .01ms; }
+  .add-contact-button,
+  .voice-call-dialog__panel { transition-duration: .01ms; }
 }

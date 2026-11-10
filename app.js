@@ -2,6 +2,7 @@ import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js";
+import { createVoiceCallController } from "./js/voice-calls.js";
 import {
   getCurrentUser,
   getAuthErrorMessage,
@@ -37,6 +38,11 @@ let currentAbout = "";
 let currentAvatarUrl = null;
 
 const byId = (id) => document.getElementById(id);
+const voiceCallsController = createVoiceCallController({
+  supabase,
+  getUser: () => user,
+  getPublicProfileNames
+});
 const setStatus = (id, message) => {
   const status = byId(id);
   if (id === "auth-status") status.classList.remove("auth-status--error");
@@ -485,6 +491,14 @@ async function openConversation(conversation) {
     return false;
   }
   currentConversation = { ...conversation, id: conversationId };
+  const peerId = currentConversation.is_group
+    ? null
+    : [...directConversationByPeer.entries()].find(([, id]) => id === conversationId)?.[0];
+  const callButton = byId("chat-call-button");
+  callButton.hidden = !isUuid(peerId) || peerId === user?.id;
+  callButton.dataset.userId = peerId || "";
+  callButton.setAttribute("aria-label", `Позвонить ${currentConversation.name || "контакту"}`);
+  callButton.title = `Позвонить ${currentConversation.name || "контакту"}`;
   byId("chat-view").hidden = false;
   byId("chat-title").textContent = currentConversation.name || "Личный чат";
   byId("messages").replaceChildren();
@@ -601,6 +615,17 @@ window.addEventListener("gadlink:open-contact-chat", (event) => {
   void openContactChat(event.detail || {});
 });
 
+byId("chat-call-button").addEventListener("click", (event) => {
+  const peerId = event.currentTarget.dataset.userId;
+  if (!isUuid(peerId) || peerId === user?.id) {
+    setStatus("chat-status", "Не удалось определить собеседника для звонка.");
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("gadlink:start-voice-call", {
+    detail: { userId: peerId, username: currentConversation?.name || "Пользователь" }
+  }));
+});
+
 async function loadServers() {
   const { data, error } = await supabase.from("servers").select("id,name").order("name");
   if (error) throw error;
@@ -699,7 +724,8 @@ async function loadApp() {
       console.error("GadLink conversations load:", error);
       setStatus("chat-status", `Не удалось загрузить список чатов: ${error.message}`);
     }),
-    loadServers()
+    loadServers(),
+    voiceCallsController.initialize()
   ]);
   subscribeToConversationMemberships();
   if (!feedPostsChannel) {
@@ -732,6 +758,7 @@ document.querySelectorAll("[data-section]").forEach((button) => {
     document.querySelectorAll("[data-section]").forEach((item) => item.classList.toggle("is-active", item === button));
     if (targetSection === "reels-section") reelsController?.activate();
     else reelsController?.deactivate();
+    if (targetSection === "calls-section") void voiceCallsController.refreshHistory();
     if (button.closest("#profile-menu")) setMenuOpen(false);
   });
 });
@@ -970,6 +997,7 @@ byId("sign-out").addEventListener("click", async () => {
     switchStatus.textContent = `Не удалось сменить аккаунт: ${error.message}`;
     return;
   }
+  await voiceCallsController.shutdown();
   user = null;
   reelsController?.reset();
   currentConversation = null;
@@ -1277,6 +1305,7 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
+    void voiceCallsController.shutdown();
     reelsController?.reset();
     if (chatSubscription) void supabase.removeChannel(chatSubscription);
     chatSubscription = null;
@@ -1288,6 +1317,8 @@ supabase.auth.onAuthStateChange((_event, session) => {
     messageSyncCursors.clear();
     directConversationByPeer.clear();
     currentConversation = null;
+    byId("chat-call-button").hidden = true;
+    byId("chat-call-button").dataset.userId = "";
     user = null;
     byId("conversation-list").replaceChildren();
     applyConversationFilters();
