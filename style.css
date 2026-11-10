@@ -878,35 +878,43 @@ main {
   padding-top: 24px;
 }
 #app { position: relative; min-height: calc(100vh - 68px); }
-#app > nav { padding-top: 58px; }
-#menu-toggle {
-  position: fixed;
+#app > nav { position: relative; padding-top: 58px; }
+#app > nav #menu-toggle {
+  position: absolute;
   z-index: 82;
-  top: 12px;
-  left: 12px;
-  width: 44px;
-  min-height: 44px;
+  top: 0;
+  left: 14px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  border: 1px solid rgba(255,255,255,.09);
-  border-radius: 14px;
-  background: rgba(31,30,33,.94);
-  box-shadow: 0 8px 26px rgba(0,0,0,.24);
+  gap: 3px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
 }
-#menu-toggle span {
-  width: 18px;
-  height: 2px;
+#app > nav #menu-toggle:hover:not(:disabled) {
+  color: inherit;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+#app > nav #menu-toggle span {
+  width: 11px;
+  height: 1.5px;
   border-radius: 2px;
   background: #e8e5e8;
   transition: transform .2s ease, opacity .16s ease;
 }
-#menu-toggle.is-open span:first-child { transform: translateY(7px) rotate(45deg); }
+#menu-toggle.is-open span:first-child { transform: translateY(4.5px) rotate(45deg); }
 #menu-toggle.is-open span:nth-child(2) { opacity: 0; }
-#menu-toggle.is-open span:last-child { transform: translateY(-7px) rotate(-45deg); }
+#menu-toggle.is-open span:last-child { transform: translateY(-4.5px) rotate(-45deg); }
 .profile-menu {
   position: fixed;
   z-index: 80;
@@ -928,6 +936,12 @@ main {
   border-radius: 0;
   background: rgba(0,0,0,.58);
   cursor: default;
+}
+.profile-menu__backdrop:hover:not(:disabled) {
+  color: inherit;
+  border-color: transparent;
+  background: rgba(0,0,0,.58);
+  box-shadow: none;
 }
 .profile-menu__panel {
   position: relative;

@@ -141,6 +141,7 @@ export function createReelsFeed({ supabase, getUser }) {
     progress.type = "range";
     progress.min = "0";
     progress.max = "1000";
+    progress.step = "any";
     progress.value = "0";
     progress.setAttribute("aria-label", "Прогресс видео");
 
@@ -182,6 +183,22 @@ export function createReelsFeed({ supabase, getUser }) {
     let clickTimer = 0;
     let lastTouchAt = 0;
     let lastTapAt = 0;
+    let progressFrame = 0;
+    let isSeeking = false;
+
+    const syncProgress = () => {
+      if (!isSeeking && Number.isFinite(video.duration) && video.duration > 0) {
+        const ratio = Math.min(1, Math.max(0, video.currentTime / video.duration));
+        progress.value = String(ratio * Number(progress.max));
+      }
+    };
+    const updateProgress = () => {
+      progressFrame = 0;
+      syncProgress();
+      if (!video.paused && !video.ended) {
+        progressFrame = window.requestAnimationFrame(updateProgress);
+      }
+    };
 
     video.addEventListener("click", () => {
       if (Date.now() - lastTouchAt < 450) return;
@@ -211,11 +228,13 @@ export function createReelsFeed({ supabase, getUser }) {
         }, 290);
       }
     }, { passive: true });
-    video.addEventListener("timeupdate", () => {
-      if (Number.isFinite(video.duration) && video.duration > 0 && document.activeElement !== progress) {
-        progress.value = String(Math.round(video.currentTime / video.duration * 1000));
-      }
+    video.addEventListener("play", () => {
+      if (!progressFrame) progressFrame = window.requestAnimationFrame(updateProgress);
     });
+    video.addEventListener("timeupdate", syncProgress);
+    video.addEventListener("pause", syncProgress);
+    video.addEventListener("ended", syncProgress);
+    video.addEventListener("seeked", syncProgress);
     video.addEventListener("loadedmetadata", () => {
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         const ratio = video.videoWidth / video.videoHeight;
@@ -237,8 +256,17 @@ export function createReelsFeed({ supabase, getUser }) {
     });
     video.addEventListener("canplay", () => fitStage(card, video));
     progress.addEventListener("input", () => {
-      if (Number.isFinite(video.duration)) video.currentTime = video.duration * Number(progress.value) / 1000;
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        video.currentTime = video.duration * Number(progress.value) / Number(progress.max);
+      }
     });
+    progress.addEventListener("pointerdown", () => { isSeeking = true; });
+    progress.addEventListener("pointerup", () => { isSeeking = false; });
+    progress.addEventListener("pointercancel", () => { isSeeking = false; });
+    progress.addEventListener("keydown", () => { isSeeking = true; });
+    progress.addEventListener("keyup", () => { isSeeking = false; });
+    progress.addEventListener("change", () => { isSeeking = false; });
+    progress.addEventListener("blur", () => { isSeeking = false; });
     card.querySelector(".reel-actions").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
