@@ -324,12 +324,12 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .contacts-panel > h3 { margin: 10px 0 18px; font-size: 20px; text-align: center; }
 .contacts-list { display: grid; gap: 5px; }
 .contact-row { display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 2px; }
-.contact-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.contact-identity { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 12px; }
 .contact-avatar { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: #f1b1bb; font-weight: 700; object-fit: cover; background: #343238; }
 .contact-details { display: grid; min-width: 0; gap: 1px; }
 .contact-details strong { overflow: hidden; color: #f2f1f2; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .contact-details small { color: #99969d; font-size: 12px; }
-.contact-chat-button { display: flex; width: auto; height: 40px; min-width: 40px; min-height: 40px; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 0; border-radius: 999px; color: #e5a2ad; font-size: 12px; background: #2a292d; }
+.contact-chat-button { display: flex; flex: 0 0 108px; width: 108px; height: 40px; min-width: 108px; min-height: 40px; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 999px; color: #e5a2ad; font-size: 12px; white-space: nowrap; background: #2a292d; }
 .contact-chat-button:hover { color: #fff; background: #3a3036; }
 .contact-chat-button svg { width: 19px; height: 19px; flex: 0 0 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .contacts-empty { margin: 20px 0; color: #99969d; text-align: center; }
