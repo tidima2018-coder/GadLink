@@ -352,6 +352,11 @@ if (
           setStatus("Пользователь удалён из друзей.");
         }
       );
+      remove.classList.add("friend-remove-button");
+      remove.insertAdjacentHTML(
+        "afterbegin",
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm-3 6h14l-1 12H6L5 9Zm4 2v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg>'
+      );
 
       friendsBox.append(
         personCard(

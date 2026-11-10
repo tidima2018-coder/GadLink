@@ -2563,6 +2563,167 @@ button.community-dialog__backdrop:active:not(:disabled) {
   .community-dialog__panel { padding-right: 13px; padding-left: 13px; }
   .server-type-grid label > span { font-size: 9px; }
 }
+
+#friends-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+#friends-section > h2,
+#friends-section > .contacts-panel,
+#friends-section > .friends-subsection {
+  width: min(100%, 860px);
+  flex: 0 0 auto;
+}
+#friends-section > h2 { margin: 0; text-align: left; }
+#friends-section > .contacts-panel {
+  min-height: 0;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+#friends-section .contacts-search {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  margin: 0;
+}
+#friends-section .contacts-search input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 42px;
+  margin: 0;
+}
+#friends-section .contacts-panel > h3 {
+  margin: 0;
+  text-align: center;
+}
+#friends-section .contacts-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+#friends-section .contact-row {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+  background: rgba(255,255,255,.025);
+}
+#friends-section .friends-subsection {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+#friends-section .friends-subsection > h3 {
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+#friends-section .friends-subsection > div {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+#friends-section .friends-subsection .friend-item { margin: 0; }
+#friends-section .friends-subsection .friend-empty { margin: 0; }
+#friends-section #friends-list .friend-item {
+  min-height: 128px;
+  padding: 22px 28px;
+  border: 1px solid #353b56;
+  border-radius: 22px;
+  background: #1b2033;
+  color: #f3f5ff;
+}
+#friends-section #friends-list .friend-person { flex: 1 1 auto; gap: 28px; }
+#friends-section #friends-list .friend-avatar {
+  width: 80px;
+  height: 80px;
+  flex-basis: 80px;
+  color: #f3f5ff;
+  font-size: 26px;
+}
+#friends-section #friends-list .friend-username {
+  font-size: 20px;
+  font-weight: 600;
+}
+#friends-section #friends-list .friend-actions { flex: 0 0 auto; }
+#friends-section #friends-list .friend-actions button:first-child { display: none; }
+#friends-section #friends-list .friend-actions .friend-remove-button {
+  min-height: 48px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid rgba(232, 78, 111, .55);
+  border-radius: 14px;
+  color: #f47e98;
+  background: rgba(93, 25, 43, .52);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#friends-section #friends-list .friend-remove-button:hover:not(:disabled) {
+  border-color: rgba(245, 100, 133, .78);
+  color: #ff9aaf;
+  background: rgba(116, 31, 53, .7);
+}
+#friends-section #friends-list .friend-remove-button svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  fill: currentColor;
+}
+#friends-section > #friends-list .friend-empty { color: #adb5cd; }
+
+@media (min-width: 721px) {
+  #friends-section {
+    grid-column: 2 / 4;
+    grid-row: 1;
+    width: auto;
+    max-width: none;
+    min-height: 100%;
+    padding: clamp(24px, 4vw, 48px);
+    overflow-y: auto;
+  }
+}
+@media (max-width: 520px) {
+  #friends-section { gap: 20px; }
+  #friends-section > .contacts-panel { padding: 16px; }
+  #friends-section .contacts-search { min-height: 48px; }
+  #friends-section .contacts-panel > h3 { font-size: 18px; }
+  #friends-section .contact-row { gap: 8px; padding: 9px; }
+  #friends-section .contact-identity { gap: 9px; }
+  #friends-section .contact-avatar { width: 42px; height: 42px; flex-basis: 42px; }
+  #friends-section .contact-chat-button { flex-basis: 96px; width: 96px; min-width: 96px; padding-inline: 7px; }
+  #friends-section .friends-subsection { gap: 10px; }
+  #friends-section .friends-subsection > h3 { padding-bottom: 8px; }
+  #friends-section #friends-list .friend-item {
+    min-height: 0;
+    padding: 16px;
+    border-radius: 18px;
+  }
+  #friends-section #friends-list .friend-person { gap: 14px; }
+  #friends-section #friends-list .friend-avatar {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
+  }
+  #friends-section #friends-list .friend-username { font-size: 16px; }
+  #friends-section #friends-list .friend-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  #friends-section #friends-list .friend-actions .friend-remove-button {
+    min-height: 42px;
+    padding: 0 13px;
+    font-size: 13px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .community-dialog, .community-dialog__panel, .community-switch__track, .community-switch__track::after { transition-duration: .01ms; }
 }

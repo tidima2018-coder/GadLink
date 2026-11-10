@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -325,11 +325,15 @@
     <div id="contacts-list" class="contacts-list" aria-live="polite"></div>
   </div>
 
-  <h3>Заявки в друзья</h3>
-  <div id="friend-requests"></div>
+  <section class="friends-subsection" aria-labelledby="friend-requests-title">
+    <h3 id="friend-requests-title">Заявки в друзья</h3>
+    <div id="friend-requests"></div>
+  </section>
 
-  <h3>Мои друзья</h3>
-  <div id="friends-list"></div>
+  <section class="friends-subsection" aria-labelledby="friends-list-title">
+    <h3 id="friends-list-title">Мои друзья</h3>
+    <div id="friends-list"></div>
+  </section>
 </section>
       <section id="communities-section" class="page-section" hidden>
         <header class="communities-header">
