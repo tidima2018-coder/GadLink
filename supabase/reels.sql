@@ -21,11 +21,8 @@ create table if not exists public.reel_reposts (
   created_at timestamptz not null default now(),
   primary key (reel_path, user_id)
 );
-<<<<<<< HEAD
 create index if not exists reel_reposts_user_created_idx on public.reel_reposts (user_id, created_at desc);
 create index if not exists reel_reposts_path_created_idx on public.reel_reposts (reel_path, created_at desc);
-=======
->>>>>>> ai2
 
 create table if not exists public.reel_comments (
   id uuid primary key default gen_random_uuid(),
@@ -105,6 +102,27 @@ create policy "users edit own reel posts" on public.reel_posts
 drop policy if exists "users delete own reel posts" on public.reel_posts;
 create policy "users delete own reel posts" on public.reel_posts
   for delete to authenticated using (user_id = auth.uid());
+
+create or replace function public.cleanup_reel_post_interactions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from public.reel_likes where reel_path = any(old.media_paths);
+  delete from public.reel_saves where reel_path = any(old.media_paths);
+  delete from public.reel_reposts where reel_path = any(old.media_paths);
+  delete from public.reel_comments where reel_path = any(old.media_paths);
+  return old;
+end;
+$$;
+revoke all on function public.cleanup_reel_post_interactions() from public, anon, authenticated;
+drop trigger if exists cleanup_reel_post_interactions on public.reel_posts;
+create trigger cleanup_reel_post_interactions
+  after delete on public.reel_posts
+  for each row execute function public.cleanup_reel_post_interactions();
+
 drop policy if exists "authenticated users read reel likes" on public.reel_likes;
 create policy "authenticated users read reel likes" on public.reel_likes
   for select to authenticated using (true);
@@ -154,10 +172,6 @@ create policy "users add own reel comments" on public.reel_comments
 drop policy if exists "users remove own reel comments" on public.reel_comments;
 create policy "users remove own reel comments" on public.reel_comments
   for delete to authenticated using (user_id = auth.uid());
-<<<<<<< HEAD
-ё
-=======
-
 create or replace function public.gadlink_delete_reel_post(target_post_id uuid)
 returns text[]
 language plpgsql
@@ -206,4 +220,4 @@ begin
   end if;
 end
 $$;
->>>>>>> ai2
+

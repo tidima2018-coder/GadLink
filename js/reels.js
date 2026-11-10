@@ -250,8 +250,17 @@ export function createReelsFeed({ supabase, getUser }) {
       <button type="button" class="reel-action" data-action="repost" data-db-action aria-label="Сделать репост" aria-pressed="false"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m17 3 4 4-4 4"/><path d="M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4"/><path d="M21 13v2a2 2 0 0 1-2 2H3"/></svg></span><small data-count="reposts">—</small></button>
       <button type="button" class="reel-action" data-action="share" aria-label="Отправить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m21 3-7.2 18-3.7-7.1L3 10.2 21 3Z"/><path d="m10.1 13.9 4.8-4.8"/></svg></span><small>Отправить</small></button>
       <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
-      <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>
-      ${file.userId === userId() && file.postId ? '<button type="button" class="reel-action reel-action--delete" data-action="delete" aria-label="Удалить публикацию"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></span><small>Удалить</small></button>' : ""}`;
+
+      <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>`;
+
+    if (file.userId === userId() && (file.postId || file.id)) {
+      actions.insertAdjacentHTML("beforeend", `
+        <button type="button" class="reel-action reel-action--delete" data-action="delete" aria-label="Удалить публикацию">
+          <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></span>
+          <small>Удалить</small>
+        </button>`);
+    }
+
     actions.querySelectorAll("[data-db-action]").forEach((button) => {
       button.disabled = !interactionsReady;
     });
@@ -302,7 +311,7 @@ export function createReelsFeed({ supabase, getUser }) {
     stage.append(heart, playIndicator, duration, caption, carousel, progress);
     card.append(stage, actions);
     mediaByCard.set(card, mediaState);
-    bindCard(card, path, heart, playIndicator, progress, duration, mediaState);
+    bindCard(card, path, heart, playIndicator, progress, duration, mediaState, file);
     return card;
   }
 
@@ -329,7 +338,7 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   }
 
-  function bindCard(card, path, heart, indicator, progress, duration, mediaState) {
+  function bindCard(card, path, heart, indicator, progress, duration, mediaState, file) {
     let clickTimer = 0;
     let lastTouchAt = 0;
     let lastTapAt = 0;
@@ -489,6 +498,7 @@ export function createReelsFeed({ supabase, getUser }) {
       if (action === "share") share(path);
       if (action === "delete") deletePost(card);
       if (action === "sound" && currentVideo()) toggleSound(currentVideo());
+      if (action === "delete") deletePost(card, file, button);
     });
   }
 
@@ -748,6 +758,57 @@ export function createReelsFeed({ supabase, getUser }) {
     activeVideo = except;
   }
 
+  async function deletePost(card, post, button) {
+    const ownerId = userId();
+    if (!post.id || !ownerId || post.userId !== ownerId) return;
+    if (!window.confirm("Удалить эту публикацию? Это действие нельзя отменить.")) return;
+
+    button.disabled = true;
+    const paths = post.media.map((item) => item.path);
+    try {
+      const { data, error } = await supabase.from("reel_posts")
+        .delete()
+        .eq("id", post.id)
+        .eq("user_id", ownerId)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error("Публикация не найдена или вы не являетесь её владельцем.");
+    } catch (error) {
+      console.error("GadLink Reel delete:", error);
+      setStatus(`Не удалось удалить публикацию: ${error.message}`, true);
+      button.disabled = false;
+      return;
+    }
+
+    if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
+      activationId += 1;
+      pauseAll();
+      activePath = null;
+    }
+    if (paths.includes(commentsPath)) {
+      commentsPanel.hidden = true;
+      commentsPath = null;
+    }
+    paths.forEach((path) => {
+      cardsByPath.delete(path);
+      mediaUrls.delete(path);
+    });
+    card.remove();
+    observeCards();
+    setStatus(container.querySelector(".reel-card:not([hidden])")
+      ? "Публикация удалена."
+      : "Публикация удалена. Пока больше публикаций нет.");
+
+    try {
+      const { error } = await supabase.storage.from(REELS_BUCKET).remove(paths);
+      if (error) throw error;
+    } catch (error) {
+      console.error("GadLink Reel media cleanup:", error);
+      setStatus(`Публикация удалена, но не удалось удалить её медиафайлы: ${error.message}`, true);
+    }
+  }
+
   async function activateCard(card) {
     if (!sectionActive || document.hidden || card.hidden) return;
     const mediaState = mediaByCard.get(card);
@@ -862,6 +923,7 @@ export function createReelsFeed({ supabase, getUser }) {
       if (postsError) console.error("GadLink Reel posts:", postsError);
 
       const uploadedPosts = (posts || []).map((post) => ({
+        id: post.id,
         path: post.media_paths[0],
         postId: post.id,
         title: post.title,
@@ -1034,11 +1096,29 @@ export function createReelsFeed({ supabase, getUser }) {
       const meta = document.createElement("span");
       meta.className = "reel-publish-file-list__meta";
       meta.textContent = `${formatFileSize(file.size)}${!type ? " · неподдерживаемый формат" : file.size > limit ? " · превышен лимит" : ""}`;
-      item.append(name, meta);
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "reel-publish-file-remove";
+      removeButton.dataset.removeFile = String(publishFileList.children.length);
+      removeButton.setAttribute("aria-label", `Убрать файл ${file.name}`);
+      removeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+      item.append(name, meta, removeButton);
       publishFileList.append(item);
     }
     publishStatus.textContent = "";
     publishStatus.classList.remove("is-error");
+  });
+
+  publishFileList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-remove-file]");
+    if (!button) return;
+    const removeIndex = Number(button.dataset.removeFile);
+    const remainingFiles = new DataTransfer();
+    [...publishFiles.files].forEach((file, index) => {
+      if (index !== removeIndex) remainingFiles.items.add(file);
+    });
+    publishFiles.files = remainingFiles.files;
+    publishFiles.dispatchEvent(new Event("change", { bubbles: true }));
   });
 
   publishForm.addEventListener("submit", async (event) => {
@@ -1116,6 +1196,7 @@ export function createReelsFeed({ supabase, getUser }) {
       if (error) throw error;
 
       const post = {
+        id: postId,
         path: uploadedPaths[0],
         postId,
         title,
