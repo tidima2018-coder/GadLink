@@ -22,6 +22,25 @@ create index if not exists voice_calls_callee_history_idx
 create index if not exists voice_calls_active_participants_idx
   on public.voice_calls(status, updated_at)
   where status in ('ringing', 'accepted');
+create index if not exists voice_calls_active_caller_idx
+  on public.voice_calls(caller_id, updated_at desc)
+  where status in ('ringing', 'accepted');
+create index if not exists voice_calls_active_callee_idx
+  on public.voice_calls(callee_id, updated_at desc)
+  where status in ('ringing', 'accepted');
+create index if not exists voice_calls_incoming_ringing_idx
+  on public.voice_calls(callee_id, created_at desc)
+  where status = 'ringing';
+
+-- A participant can hide history locally without deleting the shared call record.
+create table if not exists public.voice_call_history_hidden (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  call_id uuid not null references public.voice_calls(id) on delete cascade,
+  hidden_at timestamptz not null default now(),
+  primary key (user_id, call_id)
+);
+alter table public.voice_call_history_hidden enable row level security;
+revoke all on public.voice_call_history_hidden from anon, authenticated;
 
 alter table public.voice_calls enable row level security;
 revoke all on public.voice_calls from anon, authenticated;
@@ -201,18 +220,49 @@ begin
   return query
     select c.*
     from public.voice_calls c
-    where c.caller_id = v_user_id or c.callee_id = v_user_id
+    where (c.caller_id = v_user_id or c.callee_id = v_user_id)
+      and not exists (
+        select 1 from public.voice_call_history_hidden h
+        where h.user_id = v_user_id and h.call_id = c.id
+      )
     order by c.created_at desc
     limit 100;
+end
+$$;
+
+create or replace function public.gadlink_clear_voice_call_history()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+begin
+  if v_user_id is null then
+    raise exception 'Необходима авторизация.' using errcode = '42501';
+  end if;
+
+  insert into public.voice_call_history_hidden(user_id, call_id)
+  select v_user_id, c.id
+  from public.voice_calls c
+  where (c.caller_id = v_user_id or c.callee_id = v_user_id)
+    and not exists (
+      select 1 from public.voice_call_history_hidden h
+      where h.user_id = v_user_id and h.call_id = c.id
+    )
+  on conflict (user_id, call_id) do nothing;
 end
 $$;
 
 revoke all on function public.gadlink_start_voice_call(uuid) from public;
 revoke all on function public.gadlink_transition_voice_call(uuid, text) from public;
 revoke all on function public.gadlink_get_voice_call_history() from public;
+revoke all on function public.gadlink_clear_voice_call_history() from public;
 grant execute on function public.gadlink_start_voice_call(uuid) to authenticated;
 grant execute on function public.gadlink_transition_voice_call(uuid, text) to authenticated;
 grant execute on function public.gadlink_get_voice_call_history() to authenticated;
+grant execute on function public.gadlink_clear_voice_call_history() to authenticated;
 
 -- A private topic may only be joined by a call participant or its own inbox user.
 drop policy if exists gadlink_voice_private_topic_read on realtime.messages;

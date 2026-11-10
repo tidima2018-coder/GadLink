@@ -15,6 +15,13 @@ create table if not exists public.reel_saves (
   primary key (reel_path, user_id)
 );
 
+create table if not exists public.reel_reposts (
+  reel_path text not null check (length(reel_path) between 1 and 1024),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (reel_path, user_id)
+);
+
 create table if not exists public.reel_comments (
   id uuid primary key default gen_random_uuid(),
   reel_path text not null check (length(reel_path) between 1 and 1024),
@@ -43,11 +50,13 @@ create index if not exists reel_posts_created_idx on public.reel_posts (created_
 
 alter table public.reel_likes enable row level security;
 alter table public.reel_saves enable row level security;
+alter table public.reel_reposts enable row level security;
 alter table public.reel_comments enable row level security;
 alter table public.reel_posts enable row level security;
 
 grant select, insert, delete on public.reel_likes to authenticated;
 grant select, insert, delete on public.reel_saves to authenticated;
+grant select, insert, delete on public.reel_reposts to authenticated;
 grant select, insert, delete on public.reel_comments to authenticated;
 grant select, insert on public.reel_posts to authenticated;
 
@@ -64,6 +73,10 @@ create policy "users remove own reel media" on storage.objects
   for delete to authenticated using (
     bucket_id = 'reels' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+drop policy if exists "users remove own reel posts" on public.reel_posts;
+create policy "users remove own reel posts" on public.reel_posts
+  for delete to authenticated using (user_id = auth.uid());
 
 drop policy if exists "authenticated users read reel posts" on public.reel_posts;
 create policy "authenticated users read reel posts" on public.reel_posts
@@ -96,6 +109,16 @@ drop policy if exists "users remove own reel saves" on public.reel_saves;
 create policy "users remove own reel saves" on public.reel_saves
   for delete to authenticated using (user_id = auth.uid());
 
+drop policy if exists "authenticated users read reel reposts" on public.reel_reposts;
+create policy "authenticated users read reel reposts" on public.reel_reposts
+  for select to authenticated using (true);
+drop policy if exists "users add own reel reposts" on public.reel_reposts;
+create policy "users add own reel reposts" on public.reel_reposts
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "users remove own reel reposts" on public.reel_reposts;
+create policy "users remove own reel reposts" on public.reel_reposts
+  for delete to authenticated using (user_id = auth.uid());
+
 drop policy if exists "authenticated users read reel comments" on public.reel_comments;
 create policy "authenticated users read reel comments" on public.reel_comments
   for select to authenticated using (true);
@@ -105,3 +128,52 @@ create policy "users add own reel comments" on public.reel_comments
 drop policy if exists "users remove own reel comments" on public.reel_comments;
 create policy "users remove own reel comments" on public.reel_comments
   for delete to authenticated using (user_id = auth.uid());
+
+create or replace function public.gadlink_delete_reel_post(target_post_id uuid)
+returns text[]
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_media_paths text[];
+begin
+  if v_user_id is null then
+    raise exception 'Необходима авторизация.' using errcode = '42501';
+  end if;
+
+  select p.media_paths into v_media_paths
+  from public.reel_posts p
+  where p.id = target_post_id and p.user_id = v_user_id
+  for update;
+  if not found then
+    raise exception 'Публикация не найдена или принадлежит другому пользователю.' using errcode = '42501';
+  end if;
+
+  delete from public.reel_likes where reel_path = any(v_media_paths);
+  delete from public.reel_saves where reel_path = any(v_media_paths);
+  delete from public.reel_reposts where reel_path = any(v_media_paths);
+  delete from public.reel_comments where reel_path = any(v_media_paths);
+  delete from public.reel_posts where id = target_post_id and user_id = v_user_id;
+  return v_media_paths;
+end
+$$;
+
+revoke all on function public.gadlink_delete_reel_post(uuid) from public;
+grant execute on function public.gadlink_delete_reel_post(uuid) to authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_catalog.pg_publication where pubname = 'supabase_realtime')
+    and not exists (
+      select 1 from pg_catalog.pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'reel_reposts'
+    )
+  then
+    alter publication supabase_realtime add table public.reel_reposts;
+  end if;
+end
+$$;
