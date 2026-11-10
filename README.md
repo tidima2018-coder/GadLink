@@ -9,7 +9,8 @@
 3. Настройте email и Resend по инструкции в [supabase/email_setup.md](./supabase/email_setup.md).
 4. Убедитесь, что приложение использует таблицы и колонки, перечисленные ниже. Если они ещё не созданы, сначала подготовьте схему данных.
 5. Проверьте и примените политики из [supabase/auth_setup.sql](./supabase/auth_setup.sql) в SQL Editor существующего проекта. Прочитайте предупреждения в инструкции перед запуском.
-6. Создайте private Storage bucket `reels`, если его ещё нет, и примените [supabase/reels.sql](./supabase/reels.sql) в SQL Editor. Скрипт создаёт таблицы Reels и разрешает авторизованным пользователям читать публикации, а загружать и удалять медиа — только внутри своей папки.
+6. После настройки базовых таблиц и `auth_setup.sql` примените [supabase/community_setup.sql](./supabase/community_setup.sql). Миграция добавляет типы и приватность серверов/каналов, участников, приглашения и политики доступа. Она создаёт публичный bucket `server-avatars`; загружать файлы можно только в папку своего пользователя.
+7. Создайте private Storage bucket `reels`, если его ещё нет, и примените [supabase/reels.sql](./supabase/reels.sql) в SQL Editor. Скрипт создаёт таблицы Reels и разрешает авторизованным пользователям читать публикации, а загружать и удалять медиа — только внутри своей папки.
 
 ## Используемые таблицы
 
@@ -18,12 +19,15 @@
 - `conversations`: `id`, `name` (text, допускает null), `is_group` (boolean), `created_by` (uuid), `created_at`.
 - `conversation_members`: `conversation_id` (uuid), `user_id` (uuid).
 - `messages`: `id`, `conversation_id` (uuid), `user_id` (uuid), `content` (text), `created_at`.
-- `servers`: `id`, `name` (text), `created_by` (uuid), `created_at`.
-- `text_channels`: `id`, `server_id` (uuid), `name` (text), `created_at`.
+- `servers`: `id`, `name` (text), `created_by` (uuid), `created_at`; дополнительные поля `description`, `server_type`, `is_private`, `avatar_path`, `invite_code` добавляет `supabase/community_setup.sql`.
+- `server_members`: членство и роли серверов; создаётся миграцией сообществ.
+- `text_channels`: `id`, `server_id` (uuid), `name` (text), `created_at`; `channel_type`, `category`, `is_private`, `created_by` добавляет миграция.
 - `channel_messages`: `id`, `channel_id` (uuid), `user_id` (uuid), `content` (text), `created_at`.
 - `reel_posts`: публикации Reels с названием, описанием, хештегами и массивами путей/типов медиа; таблица создаётся скриптом `supabase/reels.sql`.
 
 Добавьте `posts`, `messages` и `channel_messages` в публикацию Supabase Realtime. Приложенный SQL проверяет `auth.users.email_confirmed_at` в RLS-функции и закрывает запись/чтение незарегистрированным и неподтверждённым пользователям. Перед применением сверьте реальные таблицы, колонки и политики существующего проекта. Если bucket `avatars` уже создан как private, измените его на public в панели Storage, чтобы работали публичные ссылки.
+
+Ссылка-приглашение открывает сервер по токену в URL и добавляет вошедшего пользователя в `server_members`. Приватные серверы видны только участникам; приватные каналы доступны только владельцу сервера. В каналах объявлений публиковать могут только владельцы. Голосовые каналы сохраняются как отдельный тип, но голосовые звонки пока не подключены.
 
 В Reels можно опубликовать видео или карусель до 10 фото/видео. Ограничения интерфейса: 50 МБ на видео и 15 МБ на изображение; проверьте, что лимит размера файлов bucket `reels` в Supabase не ниже 50 МБ.
 
