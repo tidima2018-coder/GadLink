@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#19191c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -31,6 +31,22 @@
         </div>
       </div>
       <h2 id="profile-menu-title">Настройки аккаунта</h2>
+      <section class="notification-settings profile-menu__notifications" aria-labelledby="notification-settings-title">
+        <h3 id="notification-settings-title">
+          <svg class="notification-settings__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+            <path d="M10 21h4"></path>
+          </svg>
+          Push-уведомления
+        </h3>
+        <p>Получайте уведомления о новых сообщениях. Для Push нужен HTTPS; на iPhone/iPad сначала добавьте GadLink на экран «Домой».</p>
+        <button id="push-toggle" type="button">Включить уведомления</button>
+        <label id="push-preview-option" class="push-preview-option" hidden>
+          <input id="push-show-preview" type="checkbox">
+          Показывать текст сообщений в уведомлениях
+        </label>
+        <p id="push-status" class="profile-menu__status" role="status"></p>
+      </section>
       <form id="menu-profile-form" class="profile-menu__form">
         <label for="menu-profile-username">ник</label>
         <input id="menu-profile-username" maxlength="40" autocomplete="nickname" required>
@@ -55,6 +71,15 @@
       </button>
       <button id="sign-out" class="profile-menu__sign-out" type="button" hidden>Сменить аккаунт</button>
       <p id="account-switch-status" class="profile-menu__status" role="status"></p>
+      <section class="pwa-install-card profile-menu__install" aria-labelledby="pwa-install-title">
+        <div>
+          <h3 id="pwa-install-title">GadLink на этом устройстве</h3>
+          <p>Установите приложение для быстрого доступа к чатам.</p>
+        </div>
+        <button id="pwa-install" class="pwa-install-button" type="button" hidden>Установить GadLink</button>
+        <p id="pwa-install-status" class="pwa-install-status" role="status"></p>
+        <p id="pwa-install-guide" class="pwa-install-guide" role="note" hidden></p>
+      </section>
     </aside>
   </div>
 
@@ -71,16 +96,6 @@
       </form>
       <p id="auth-status" role="status"></p>
       <button id="resend-confirmation" type="button" hidden>отправить письмо повторно</button>
-    </section>
-
-    <section class="pwa-install-card" aria-labelledby="pwa-install-title">
-      <div>
-        <h2 id="pwa-install-title">GadLink на этом устройстве</h2>
-        <p>Установите приложение для быстрого и удобного доступа к чатам.</p>
-      </div>
-      <button id="pwa-install" class="pwa-install-button" type="button" hidden>Установить GadLink</button>
-      <p id="pwa-install-status" class="pwa-install-status" role="status"></p>
-      <p id="pwa-install-guide" class="pwa-install-guide" role="note" hidden></p>
     </section>
 
     <div id="app" hidden>
@@ -201,16 +216,27 @@
 
       <section id="chats-section" class="page-section">
         <h2>чаты</h2>
-        <section class="notification-settings" aria-labelledby="notification-settings-title">
-          <h3 id="notification-settings-title">Push-уведомления</h3>
-          <p>Нажмите «Включить уведомления» и разрешите их в браузере. Для Push нужен HTTPS; на iPhone/iPad установите GadLink на экран «Домой» (iOS/iPadOS 16.4+).</p>
-          <button id="push-toggle" type="button">Включить уведомления</button>
-          <label id="push-preview-option" class="push-preview-option" hidden>
-            <input id="push-show-preview" type="checkbox">
-            Показывать текст сообщений в уведомлениях
-          </label>
-          <p id="push-status" class="profile-menu__status" role="status"></p>
-        </section>
+        <details class="chat-background-settings">
+            <summary>Фон чата</summary>
+            <fieldset class="chat-background-gradients">
+              <legend>Выберите градиент</legend>
+              <div class="chat-background-options">
+                <button type="button" class="chat-background-option" data-chat-bg-gradient="rose" aria-label="Розово-сливовый градиент" aria-pressed="true"><span></span></button>
+                <button type="button" class="chat-background-option" data-chat-bg-gradient="violet" aria-label="Фиолетовый градиент" aria-pressed="false"><span></span></button>
+                <button type="button" class="chat-background-option" data-chat-bg-gradient="ocean" aria-label="Морской градиент" aria-pressed="false"><span></span></button>
+                <button type="button" class="chat-background-option" data-chat-bg-gradient="forest" aria-label="Зелёный градиент" aria-pressed="false"><span></span></button>
+              </div>
+              <button type="button" class="chat-background-apply" data-chat-bg-apply="gradient">Применить градиент</button>
+            </fieldset>
+            <div class="chat-background-image">
+              <label for="chat-background-file">Или выберите изображение с устройства</label>
+              <input id="chat-background-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+              <p id="chat-background-file-name" class="chat-background-file-name">Файл не выбран</p>
+              <button type="button" class="chat-background-apply" data-chat-bg-apply="image" disabled>Применить изображение</button>
+            </div>
+            <button type="button" class="chat-background-reset">Сбросить фон</button>
+            <p id="chat-background-status" class="chat-background-status" role="status" aria-live="polite"></p>
+        </details>
         <label class="conversation-search-row" for="conversation-search">
           <span aria-hidden="true">⌕</span>
           <input id="conversation-search" type="search" placeholder="Search" autocomplete="off">

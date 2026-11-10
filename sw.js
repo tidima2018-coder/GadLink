@@ -1,4 +1,4 @@
-const CACHE_NAME = "gadlink-static-v6";
+const CACHE_NAME = "gadlink-static-v12";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -10,6 +10,7 @@ const APP_SHELL = [
   "./js/supabaseClient.js",
   "./js/push-notifications.js",
   "./js/pwa-install.js",
+  "./js/chat-background.js",
   "./js/friends-ui.js",
   "./js/friends.js",
   "./js/reels.js",

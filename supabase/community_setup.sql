@@ -1,6 +1,11 @@
 -- Apply after the existing servers, text_channels, and channel_messages tables
 -- and after auth_setup.sql.
+BEGIN;
 
+DROP POLICY IF EXISTS "Users can create servers" ON public.servers;
+DROP POLICY IF EXISTS "Users can delete own servers" ON public.servers;
+DROP POLICY IF EXISTS "Users can update own servers" ON public.servers;
+DROP POLICY IF EXISTS "Users can view own servers" ON public.servers;
 alter table public.servers
   add column if not exists description text not null default '',
   add column if not exists server_type text not null default 'friends',
@@ -335,3 +340,4 @@ using (
   and public.gadlink_email_is_confirmed()
   and (storage.foldername(name))[1] = auth.uid()::text
 );
+COMMIT;

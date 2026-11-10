@@ -4,6 +4,7 @@ import { getPublicProfileNames } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js";
 import { createVoiceCallController } from "./js/voice-calls.js";
 import { createPushNotifications } from "./js/push-notifications.js";
+import { createChatBackgroundSettings } from "./js/chat-background.js";
 import {
   getCurrentUser,
   getAuthErrorMessage,
@@ -56,6 +57,9 @@ const voiceCallsController = createVoiceCallController({
 });
 const pushController = createPushNotifications({
   supabase,
+  getUser: () => user
+});
+const chatBackgroundController = createChatBackgroundSettings({
   getUser: () => user
 });
 const setStatus = (id, message) => {
@@ -1119,6 +1123,7 @@ async function loadApp() {
     throw new Error("Сначала подтвердите адрес электронной почты.");
   }
   showApp(true);
+  await chatBackgroundController.setUser(user.id);
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([
     loadProfile().catch((error) => {
@@ -1700,6 +1705,7 @@ byId("sign-out").addEventListener("click", async () => {
     byId("calls-status").textContent = `Не удалось полностью закрыть звонок: ${error.message}`;
   }
   user = null;
+  chatBackgroundController.setUser(null);
   reelsController?.reset();
   currentConversation = null;
   currentChannel = null;
@@ -2198,6 +2204,7 @@ supabase.auth.onAuthStateChange((_event, session) => {
     byId("chat-call-button").hidden = true;
     byId("chat-call-button").dataset.userId = "";
     user = null;
+    chatBackgroundController.setUser(null);
     byId("conversation-list").replaceChildren();
     applyConversationFilters();
     showApp(false);

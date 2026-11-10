@@ -19,8 +19,6 @@ export function createPushNotifications({ supabase, getUser }) {
   const previewInput = document.getElementById("push-show-preview");
   const statusBox = document.getElementById("push-status");
   const deliveryStatusBox = document.getElementById("push-delivery-status");
-  const installButton = document.getElementById("pwa-install");
-  const installStatus = document.getElementById("pwa-install-status");
   let registration = null;
   let endpoint = null;
   let subscriptionNeedsRefresh = false;
@@ -30,7 +28,6 @@ export function createPushNotifications({ supabase, getUser }) {
   let lastPresenceAt = 0;
   let presenceUpdatePending = false;
   let presenceTimer = null;
-  let deferredInstallPrompt = null;
   let deliveryStatusTimer = null;
 
   function setStatus(message) {
@@ -317,11 +314,6 @@ export function createPushNotifications({ supabase, getUser }) {
       presenceTimer = setInterval(() => {
         if (document.visibilityState === "visible") postState();
       }, 10_000);
-      if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
-        installStatus.textContent = "GadLink установлен на этом устройстве.";
-      } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-        installStatus.textContent = "Чтобы установить приложение: Поделиться → На экран «Домой». Push поддерживается в iOS 16.4 и новее.";
-      }
     }
     if (!("PushManager" in window) || !("Notification" in window)) {
       updateControls(false);
@@ -389,33 +381,6 @@ export function createPushNotifications({ supabase, getUser }) {
     } finally {
       updateControls(Boolean(endpoint));
     }
-  });
-  window.addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
-    deferredInstallPrompt = event;
-    installButton.hidden = false;
-  });
-  installButton.addEventListener("click", async () => {
-    if (!deferredInstallPrompt) return;
-    installButton.disabled = true;
-    try {
-      await deferredInstallPrompt.prompt();
-      const choice = await deferredInstallPrompt.userChoice;
-      installStatus.textContent = choice.outcome === "accepted"
-        ? "GadLink добавляется на главный экран."
-        : "Установку можно выполнить позже из меню браузера.";
-    } catch (error) {
-      console.error("GadLink PWA install:", error);
-      installStatus.textContent = `Не удалось начать установку: ${error.message}`;
-    } finally {
-      deferredInstallPrompt = null;
-      installButton.hidden = true;
-      installButton.disabled = false;
-    }
-  });
-  window.addEventListener("appinstalled", () => {
-    installButton.hidden = true;
-    installStatus.textContent = "GadLink установлен на этом устройстве.";
   });
   previewInput.addEventListener("change", () => {
     void savePreviewPreference().catch((error) => {
