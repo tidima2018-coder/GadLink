@@ -30,23 +30,13 @@
           <span id="profile-menu-email"></span>
         </div>
       </div>
+      <button id="push-settings-open" class="profile-menu__notifications-trigger" type="button" aria-label="Настроить уведомления" title="Настроить уведомления">
+        <svg class="notification-settings__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+          <path d="M10 21h4"></path>
+        </svg>
+      </button>
       <h2 id="profile-menu-title">Настройки аккаунта</h2>
-      <section class="notification-settings profile-menu__notifications" aria-labelledby="notification-settings-title">
-        <h3 id="notification-settings-title">
-          <svg class="notification-settings__icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
-            <path d="M10 21h4"></path>
-          </svg>
-          Push-уведомления
-        </h3>
-        <p>Получайте уведомления о новых сообщениях. Для Push нужен HTTPS; на iPhone/iPad сначала добавьте GadLink на экран «Домой».</p>
-        <button id="push-toggle" type="button">Включить уведомления</button>
-        <label id="push-preview-option" class="push-preview-option" hidden>
-          <input id="push-show-preview" type="checkbox">
-          Показывать текст сообщений в уведомлениях
-        </label>
-        <p id="push-status" class="profile-menu__status" role="status"></p>
-      </section>
       <form id="menu-profile-form" class="profile-menu__form">
         <label for="menu-profile-username">ник</label>
         <input id="menu-profile-username" maxlength="40" autocomplete="nickname" required>
@@ -165,13 +155,13 @@
 
       <section id="reels-section" class="page-section reels-section" hidden>
         <div class="reels-toolbar">
-          <div class="reels-toolbar__brand"><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="3"/><path d="M3 11h18M5 7l2 4m3-4 2 4m3-4 2 4"/></svg></span><h2>Reels</h2></div>
+          <div class="reels-toolbar__brand"><h2>Reels</h2></div>
           <div class="reels-tabs" role="tablist" aria-label="Лента Reels">
             <button type="button" class="is-selected" role="tab" aria-selected="true">Для вас</button>
             <button type="button" role="tab" aria-selected="false" disabled title="Для подписок видео нужно связать с авторами">Подписки</button>
           </div>
           <label class="reels-search" for="reels-search">
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg></span>
             <input id="reels-search" type="search" placeholder="Поиск в Reels" autocomplete="off">
           </label>
         </div>
@@ -184,7 +174,7 @@
           </div>
         </div>
         <aside id="reels-comments" class="reels-comments" aria-label="Комментарии" hidden>
-          <div class="reels-comments__header"><strong>Комментарии</strong><button id="reels-comments-close" type="button" aria-label="Закрыть">×</button></div>
+          <div class="reels-comments__header"><strong>Комментарии</strong><button id="reels-comments-close" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
           <div id="reels-comments-list" class="reels-comments__list"></div>
           <form id="reels-comment-form" class="reels-comments__form">
             <input id="reels-comment-input" maxlength="1000" placeholder="Напишите комментарий" required>
@@ -196,7 +186,7 @@
           <section class="reel-publish-dialog__panel">
             <div class="reel-publish-dialog__heading">
               <h2 id="reel-publish-title">Новая публикация</h2>
-              <button id="reel-publish-close" type="button" aria-label="Закрыть">×</button>
+              <button id="reel-publish-close" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
             </div>
             <p class="reel-publish-dialog__hint">Добавьте видео или до 10 фото для свайп-карусели. Максимум: 50 МБ на видео и 15 МБ на фото.</p>
             <form id="reel-publish-form">
@@ -221,7 +211,6 @@
 
       <section id="chats-section" class="page-section">
         <h2>чаты</h2>
-<<<<<<< HEAD
         <details class="chat-background-settings">
             <summary>Фон чата</summary>
             <fieldset class="chat-background-gradients">
@@ -243,30 +232,10 @@
             <button type="button" class="chat-background-reset">Сбросить фон</button>
             <p id="chat-background-status" class="chat-background-status" role="status" aria-live="polite"></p>
         </details>
-=======
->>>>>>> 79ed0e745a473b6eab391716fc5cbed498fbd7cb
         <label class="conversation-search-row" for="conversation-search">
           <span aria-hidden="true">⌕</span>
           <input id="conversation-search" type="search" placeholder="Search" autocomplete="off">
         </label>
-        <button id="push-settings-open" class="chat-settings-link" type="button">Настроить уведомления</button>
-        <details class="chat-background-settings">
-          <summary>Фон чата</summary>
-          <div class="chat-background-settings__body">
-            <span>Выберите градиент</span>
-            <div class="chat-background-presets" role="group" aria-label="Градиент фона чата">
-              <button type="button" data-chat-background="rose" aria-label="Розовый градиент" aria-pressed="true"></button>
-              <button type="button" data-chat-background="dusk" aria-label="Сумеречный градиент" aria-pressed="false"></button>
-              <button type="button" data-chat-background="ocean" aria-label="Морской градиент" aria-pressed="false"></button>
-              <button type="button" data-chat-background="forest" aria-label="Лесной градиент" aria-pressed="false"></button>
-            </div>
-            <label for="chat-background-url">Или вставьте ссылку на изображение</label>
-            <input id="chat-background-url" type="url" placeholder="https://example.com/background.jpg" autocomplete="url">
-            <button id="chat-background-apply" type="button">Применить фон</button>
-            <button id="chat-background-reset" type="button" class="chat-background-reset">Сбросить фон</button>
-            <p id="chat-background-status" role="status"></p>
-          </div>
-        </details>
         <div class="chat-notice">
           <strong>Never miss a message!</strong>
           <span>Enable notifications to stay updated.</span>
@@ -396,11 +365,11 @@
     </div>
   </main>
 
-  <div id="push-settings-dialog" class="push-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="notification-settings-title" hidden inert>
+  <div id="push-settings-dialog" class="push-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="push-settings-title" hidden inert>
     <button class="push-settings-dialog__backdrop" type="button" data-push-settings-close aria-label="Закрыть настройки уведомлений"></button>
     <section class="notification-settings">
-      <button class="push-settings-dialog__close" type="button" data-push-settings-close aria-label="Закрыть">×</button>
-      <h3 id="notification-settings-title">Push-уведомления</h3>
+      <button class="push-settings-dialog__close" type="button" data-push-settings-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
+      <h3 id="push-settings-title">Push-уведомления</h3>
       <p>Включите уведомления, чтобы не пропускать сообщения. Разрешение можно изменить в настройках браузера.</p>
       <button id="push-toggle" type="button">Включить уведомления</button>
       <label id="push-preview-option" class="push-preview-option" hidden>
@@ -440,7 +409,7 @@
       <div class="community-dialog__heading">
         <button type="button" class="community-dialog__cancel" data-dialog-close="server-create-dialog">Отмена</button>
         <h2 id="server-create-title">Новый сервер</h2>
-        <button type="button" class="community-dialog__close" data-dialog-close="server-create-dialog" aria-label="Закрыть">×</button>
+        <button type="button" class="community-dialog__close" data-dialog-close="server-create-dialog" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <form id="server-form">
         <label class="server-photo-picker" for="server-avatar-file">
@@ -485,7 +454,7 @@
       <div class="community-dialog__heading">
         <button type="button" class="community-dialog__cancel" data-dialog-close="channel-create-dialog">Отмена</button>
         <h2 id="channel-create-title">Новый канал</h2>
-        <button type="button" class="community-dialog__close" data-dialog-close="channel-create-dialog" aria-label="Закрыть">×</button>
+        <button type="button" class="community-dialog__close" data-dialog-close="channel-create-dialog" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <p class="community-dialog__context">в сервере <strong id="channel-server-name"></strong></p>
       <form id="channel-form">
@@ -549,7 +518,7 @@
       <div class="community-dialog__heading">
         <button type="button" class="community-dialog__cancel" data-dialog-close="server-join-dialog">Отмена</button>
         <h2 id="server-join-title">Присоединиться</h2>
-        <button type="button" class="community-dialog__close" data-dialog-close="server-join-dialog" aria-label="Закрыть">×</button>
+        <button type="button" class="community-dialog__close" data-dialog-close="server-join-dialog" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <p class="community-dialog__hint">Вставьте ссылку-приглашение, чтобы присоединиться к серверу.</p>
       <form id="server-join-form">
@@ -566,7 +535,7 @@
     <section class="friend-add-dialog__panel">
       <div class="friend-add-dialog__heading">
         <h2 id="friend-add-title">Добавить контакт</h2>
-        <button id="friend-add-close" type="button" aria-label="Закрыть">×</button>
+        <button id="friend-add-close" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <p class="friend-add-dialog__hint">Найдите человека по нику и отправьте заявку в друзья.</p>
       <form id="friend-search-form">
@@ -583,7 +552,7 @@
     <section class="friend-add-dialog__panel">
       <div class="friend-add-dialog__heading">
         <h2 id="create-group-title">Создать группу</h2>
-        <button id="create-group-close" type="button" aria-label="Закрыть">×</button>
+        <button id="create-group-close" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <p class="friend-add-dialog__hint">Укажите ники участников через запятую и название группы.</p>
       <form id="conversation-form">

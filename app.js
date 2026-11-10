@@ -42,7 +42,6 @@ let communityDialogOpener = null;
 let serverPhotoPreviewUrl = null;
 let pushSettingsOpener = null;
 let pushSettingsCloseTimer = null;
-const chatBackgroundPresets = new Set(["rose", "dusk", "ocean", "forest"]);
 const communityDialogCloseTimers = new Map();
 let currentAbout = "";
 let currentAvatarUrl = null;
@@ -139,40 +138,6 @@ window.addEventListener("gadlink:push-enabled", () => setPushSettingsDialogOpen(
 document.addEventListener("keydown", (event) => {
   if (!byId("push-settings-dialog").hidden && event.key === "Escape") {
     setPushSettingsDialogOpen(false, true);
-  }
-});
-
-document.querySelectorAll("[data-chat-background]").forEach((button) => {
-  button.addEventListener("click", () => {
-    try {
-      saveChatBackgroundPreference(button.dataset.chatBackground);
-    } catch (error) {
-      console.error("GadLink save chat background:", error);
-      setStatus("chat-background-status", `Не удалось сохранить фон чата: ${error.message}`);
-    }
-  });
-});
-byId("chat-background-apply").addEventListener("click", () => {
-  const imageUrl = safeUrl(byId("chat-background-url").value.trim());
-  if (!imageUrl) {
-    setStatus("chat-background-status", "Вставьте корректную ссылку, начинающуюся с http:// или https://.");
-    return;
-  }
-  try {
-    saveChatBackgroundPreference("custom", imageUrl);
-  } catch (error) {
-    console.error("GadLink save custom chat background:", error);
-    setStatus("chat-background-status", `Не удалось сохранить фон чата: ${error.message}`);
-  }
-});
-byId("chat-background-reset").addEventListener("click", () => {
-  try {
-    localStorage.removeItem(chatBackgroundStorageKey());
-    applyChatBackground("rose");
-    setStatus("chat-background-status", "Установлен стандартный градиент чата.");
-  } catch (error) {
-    console.error("GadLink reset chat background:", error);
-    setStatus("chat-background-status", `Не удалось сбросить фон чата: ${error.message}`);
   }
 });
 
@@ -326,46 +291,6 @@ function updateProfileAvatarPreview(value) {
     placeholder.hidden = false;
   };
   image.src = avatarUrl;
-}
-
-function chatBackgroundStorageKey() {
-  return `gadlink-chat-background:${user?.id || "guest"}`;
-}
-
-function applyChatBackground(preset, imageUrl = "") {
-  const chatView = byId("chat-view");
-  const validPreset = chatBackgroundPresets.has(preset) ? preset : "rose";
-  chatView.dataset.background = imageUrl ? "custom" : validPreset;
-  if (imageUrl) {
-    chatView.style.setProperty("--chat-custom-background", `url(${JSON.stringify(imageUrl)})`);
-  } else {
-    chatView.style.removeProperty("--chat-custom-background");
-  }
-  byId("chat-background-url").value = imageUrl;
-  document.querySelectorAll("[data-chat-background]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(!imageUrl && button.dataset.chatBackground === validPreset));
-  });
-}
-
-function loadChatBackgroundPreference() {
-  const storageKey = chatBackgroundStorageKey();
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
-    const imageUrl = safeUrl(typeof saved.imageUrl === "string" ? saved.imageUrl : "");
-    const preset = chatBackgroundPresets.has(saved.preset) ? saved.preset : "rose";
-    applyChatBackground(preset, imageUrl);
-  } catch (error) {
-    console.error("GadLink chat background preference:", error);
-    setStatus("chat-background-status", `Не удалось загрузить сохранённый фон: ${error.message}`);
-    applyChatBackground("rose");
-  }
-}
-
-function saveChatBackgroundPreference(preset, imageUrl = "") {
-  const storageKey = chatBackgroundStorageKey();
-  localStorage.setItem(storageKey, JSON.stringify({ preset, imageUrl }));
-  applyChatBackground(preset, imageUrl);
-  setStatus("chat-background-status", imageUrl ? "Фон чата сохранён на этом устройстве." : "Градиент чата сохранён на этом устройстве.");
 }
 
 async function loadPublicNames(profileIds, statusId) {
@@ -1308,11 +1233,7 @@ async function loadApp() {
     throw new Error("Сначала подтвердите адрес электронной почты.");
   }
   showApp(true);
-<<<<<<< HEAD
   await chatBackgroundController.setUser(user.id);
-=======
-  loadChatBackgroundPreference();
->>>>>>> 79ed0e745a473b6eab391716fc5cbed498fbd7cb
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([
     loadProfile().catch((error) => {
