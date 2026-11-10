@@ -587,7 +587,7 @@ async function openConversation(conversation) {
   callButton.hidden = !isUuid(peerId) || peerId === user?.id;
   callButton.dataset.userId = peerId || "";
   callButton.setAttribute("aria-label", `Позвонить ${currentConversation.name || "контакту"}`);
-  callButton.title = `Позвонить ${currentConversation.name || "контакту"}`;
+  callButton.title = "Голосовой звонок";
   byId("chat-view").hidden = false;
   syncActivePushConversation();
   byId("chat-title").textContent = currentConversation.name || "Личный чат";

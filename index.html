@@ -94,6 +94,10 @@
           <span>Chats</span>
         </button>
         <button type="button" data-section="reels-section">Reels</button>
+        <button id="reel-publish-open" type="button" aria-label="Опубликовать видео или фото">
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Добавить</span>
+        </button>
         <button type="button" data-section="friends-section" aria-label="Contacts">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0Z"/></svg>
           <span>Contacts</span>
@@ -160,6 +164,32 @@
             <button type="submit">отправить</button>
           </form>
         </aside>
+        <div id="reel-publish-dialog" class="reel-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="reel-publish-title" hidden inert>
+          <button class="reel-publish-dialog__backdrop" type="button" aria-label="Закрыть публикацию"></button>
+          <section class="reel-publish-dialog__panel">
+            <div class="reel-publish-dialog__heading">
+              <h2 id="reel-publish-title">Новая публикация</h2>
+              <button id="reel-publish-close" type="button" aria-label="Закрыть">×</button>
+            </div>
+            <p class="reel-publish-dialog__hint">Добавьте видео или до 10 фото для свайп-карусели. Максимум: 50 МБ на видео и 15 МБ на фото.</p>
+            <form id="reel-publish-form">
+              <label class="reel-publish-files" for="reel-publish-files">
+                <span>Выбрать видео или фото</span>
+                <small id="reel-publish-files-label">Файлы не выбраны</small>
+                <input id="reel-publish-files" type="file" accept="video/mp4,video/webm,video/quicktime,video/ogg,image/jpeg,image/png,image/webp,image/gif" multiple required>
+              </label>
+              <ul id="reel-publish-file-list" class="reel-publish-file-list" aria-live="polite"></ul>
+              <label for="reel-publish-title-input">Название</label>
+              <input id="reel-publish-title-input" maxlength="120" required>
+              <label for="reel-publish-description">Описание</label>
+              <textarea id="reel-publish-description" maxlength="1000" rows="3" placeholder="Расскажите о публикации"></textarea>
+              <label for="reel-publish-hashtags">Хештеги</label>
+              <input id="reel-publish-hashtags" maxlength="250" placeholder="#путешествия #друзья">
+              <p id="reel-publish-status" role="status"></p>
+              <button id="reel-publish-submit" type="submit">Опубликовать</button>
+            </form>
+          </section>
+        </div>
       </section>
 
       <section id="chats-section" class="page-section">
@@ -201,7 +231,6 @@
         <p id="calls-status" role="status"></p>
         <div id="call-history" class="call-history" aria-live="polite"></div>
       </section>
-
 
 <section id="friends-section" class="page-section" hidden>
   <h2>Друзья</h2>
@@ -291,7 +320,7 @@
       <div class="friend-add-dialog__heading">
         <h2 id="friend-add-title">Добавить контакт</h2>
         <button id="friend-add-close" type="button" aria-label="Закрыть">×</button>
-        </div>
+      </div>
       <p class="friend-add-dialog__hint">Найдите человека по нику и отправьте заявку в друзья.</p>
       <form id="friend-search-form">
         <input id="friend-search" type="search" placeholder="Поиск по нику" autocomplete="off" required>

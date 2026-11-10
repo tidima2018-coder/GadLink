@@ -2,6 +2,9 @@ import { getPublicProfileNames } from "./friends.js";
 
 const REELS_BUCKET = "reels";
 const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|m4v|ogg)$/i;
+const MAX_MEDIA_FILES = 10;
+const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
 export function createReelsFeed({ supabase, getUser }) {
   const container = document.getElementById("reels-container");
@@ -11,14 +14,21 @@ export function createReelsFeed({ supabase, getUser }) {
   const commentForm = document.getElementById("reels-comment-form");
   const commentInput = document.getElementById("reels-comment-input");
   const searchInput = document.getElementById("reels-search");
+  const publishDialog = document.getElementById("reel-publish-dialog");
+  const publishForm = document.getElementById("reel-publish-form");
+  const publishFiles = document.getElementById("reel-publish-files");
+  const publishFileList = document.getElementById("reel-publish-file-list");
+  const publishStatus = document.getElementById("reel-publish-status");
   const cardsByPath = new Map();
-  const videoUrls = new Map();
+  const mediaByCard = new WeakMap();
+  const mediaUrls = new Map();
   let observer = null;
   let activeVideo = null;
   let activePath = null;
   let commentsPath = null;
   let loading = false;
   let loaded = false;
+  let postsTableReady = false;
   let sectionActive = false;
   let interactionsReady = false;
   let soundEnabled = false;
@@ -55,19 +65,19 @@ export function createReelsFeed({ supabase, getUser }) {
     return files;
   }
 
-  async function getVideoUrl(path) {
-    if (videoUrls.has(path)) return videoUrls.get(path);
+  async function getMediaUrl(path) {
+    if (mediaUrls.has(path)) return mediaUrls.get(path);
     const { data, error } = await supabase.storage.from(REELS_BUCKET).createSignedUrl(path, 3600);
     if (!error && data?.signedUrl) {
-      videoUrls.set(path, data.signedUrl);
+      mediaUrls.set(path, data.signedUrl);
       return data.signedUrl;
     }
     const { data: publicData } = supabase.storage.from(REELS_BUCKET).getPublicUrl(path);
     if (publicData?.publicUrl) {
-      videoUrls.set(path, publicData.publicUrl);
+      mediaUrls.set(path, publicData.publicUrl);
       return publicData.publicUrl;
     }
-    throw error || new Error("Не удалось получить ссылку на видео.");
+    throw error || new Error("Не удалось получить ссылку на файл.");
   }
 
   async function checkInteractionTables() {
@@ -83,7 +93,7 @@ export function createReelsFeed({ supabase, getUser }) {
       button.disabled = true;
       button.title = "Действие станет доступно после подключения таблиц Reels";
     });
-    setStatus(`Видео загружены. Лайки, комментарии и сохранения отключены: ${error.message}. Подготовлен файл supabase/reels.sql.`, true);
+    setStatus(`Публикации загружены. Лайки, комментарии и сохранения отключены: ${error.message}. Подготовлен файл supabase/reels.sql.`, true);
   }
 
   async function refreshStats(card, path) {
@@ -157,22 +167,39 @@ export function createReelsFeed({ supabase, getUser }) {
   }
 
   function makeCard(file) {
+    const items = file.media || [{ path: file.path, name: file.name, type: "video" }];
+    const path = file.path || items[0].path;
     const card = document.createElement("article");
     card.className = "reel-card";
-    card.dataset.path = file.path;
-    card.dataset.search = file.path.toLocaleLowerCase();
+    card.dataset.path = path;
+    card.dataset.search = [
+      path, file.title, file.description, ...(file.hashtags || [])
+    ].filter(Boolean).join(" ").toLocaleLowerCase();
 
-    const video = document.createElement("video");
-    video.className = "reel-video";
-    video.autoplay = true;
-    video.playsInline = true;
-    video.loop = true;
-    video.muted = true;
-    video.setAttribute("autoplay", "");
-    video.setAttribute("muted", "");
-    video.setAttribute("playsinline", "");
-    video.preload = "none";
-    video.setAttribute("aria-label", `Видео ${file.name}`);
+    const mediaState = { items, elements: [], index: 0 };
+    const stage = document.createElement("div");
+    stage.className = "reel-stage";
+    items.forEach((item, index) => {
+      const element = item.type === "image" ? document.createElement("img") : document.createElement("video");
+      element.className = item.type === "image" ? "reel-image" : "reel-video";
+      element.hidden = index !== 0;
+      if (item.type === "image") {
+        element.alt = file.title || "Фото публикации";
+        element.draggable = false;
+      } else {
+        element.autoplay = true;
+        element.playsInline = true;
+        element.loop = true;
+        element.muted = true;
+        element.setAttribute("autoplay", "");
+        element.setAttribute("muted", "");
+        element.setAttribute("playsinline", "");
+        element.preload = "none";
+        element.setAttribute("aria-label", `Видео ${file.title || item.name || ""}`);
+      }
+      mediaState.elements.push(element);
+      stage.append(element);
+    });
 
     const heart = document.createElement("span");
     heart.className = "reel-heart-burst";
@@ -192,6 +219,9 @@ export function createReelsFeed({ supabase, getUser }) {
       <button type="button" class="reel-action" data-action="share" aria-label="Отправить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m21 3-7.2 18-3.7-7.1L3 10.2 21 3Z"/><path d="m10.1 13.9 4.8-4.8"/></svg></span><small>Отправить</small></button>
       <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
       <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>`;
+    actions.querySelectorAll("[data-db-action]").forEach((button) => {
+      button.disabled = !interactionsReady;
+    });
 
     const progress = document.createElement("input");
     progress.className = "reel-progress";
@@ -202,14 +232,44 @@ export function createReelsFeed({ supabase, getUser }) {
     progress.value = "0";
     progress.setAttribute("aria-label", "Прогресс видео");
 
-    const stage = document.createElement("div");
-    stage.className = "reel-stage";
     const duration = document.createElement("span");
     duration.className = "reel-duration";
     duration.textContent = "0:00";
-    stage.append(video, heart, playIndicator, duration, progress);
+    const caption = document.createElement("div");
+    caption.className = "reel-caption";
+    const title = document.createElement("strong");
+    title.className = "reel-caption__title";
+    title.textContent = file.title || "";
+    const description = document.createElement("p");
+    description.className = "reel-caption__description";
+    description.textContent = file.description || "";
+    const hashtags = document.createElement("p");
+    hashtags.className = "reel-caption__hashtags";
+    hashtags.textContent = (file.hashtags || []).map((tag) => `#${tag}`).join(" ");
+    caption.append(title, description, hashtags);
+    if (!title.textContent && !description.textContent && !hashtags.textContent) caption.hidden = true;
+
+    const carousel = document.createElement("div");
+    carousel.className = "reel-carousel";
+    carousel.hidden = items.length < 2;
+    const previous = document.createElement("button");
+    previous.type = "button";
+    previous.className = "reel-carousel__previous";
+    previous.setAttribute("aria-label", "Предыдущее фото");
+    previous.textContent = "‹";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "reel-carousel__next";
+    next.setAttribute("aria-label", "Следующее фото");
+    next.textContent = "›";
+    const counter = document.createElement("span");
+    counter.className = "reel-carousel__counter";
+    counter.textContent = `1 / ${items.length}`;
+    carousel.append(previous, next, counter);
+    stage.append(heart, playIndicator, duration, caption, carousel, progress);
     card.append(stage, actions);
-    bindCard(card, file.path, video, heart, playIndicator, progress);
+    mediaByCard.set(card, mediaState);
+    bindCard(card, path, heart, playIndicator, progress, duration, mediaState);
     return card;
   }
 
@@ -236,84 +296,123 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   }
 
-  function bindCard(card, path, video, heart, indicator, progress) {
+  function bindCard(card, path, heart, indicator, progress, duration, mediaState) {
     let clickTimer = 0;
     let lastTouchAt = 0;
     let lastTapAt = 0;
     let progressFrame = 0;
     let isSeeking = false;
+    let pointerStart = null;
+    let suppressTapUntil = 0;
+    const currentMedia = () => mediaState.elements[mediaState.index];
+    const currentVideo = () => currentMedia() instanceof HTMLVideoElement ? currentMedia() : null;
 
     const syncProgress = () => {
+      const video = currentVideo();
+      if (!video) return;
       if (!isSeeking && Number.isFinite(video.duration) && video.duration > 0) {
         const ratio = Math.min(1, Math.max(0, video.currentTime / video.duration));
         progress.value = String(ratio * Number(progress.max));
       }
     };
-    const updateProgress = () => {
+    const updateProgress = (video) => {
       progressFrame = 0;
       syncProgress();
-      if (!video.paused && !video.ended) {
-        progressFrame = window.requestAnimationFrame(updateProgress);
+      if (video === currentVideo() && !video.paused && !video.ended) {
+        progressFrame = window.requestAnimationFrame(() => updateProgress(video));
       }
     };
+    const syncMediaControls = () => {
+      const isVideo = Boolean(currentVideo());
+      progress.hidden = !isVideo;
+      duration.hidden = !isVideo;
+      indicator.hidden = !isVideo;
+      card.querySelector('[data-action="sound"]').hidden = !isVideo;
+      if (isVideo) syncProgress();
+    };
+    const setSlide = (index) => {
+      if (index < 0 || index >= mediaState.items.length) return;
+      if (clickTimer) window.clearTimeout(clickTimer);
+      currentVideo()?.pause();
+      mediaState.index = index;
+      mediaState.elements.forEach((element, itemIndex) => { element.hidden = itemIndex !== index; });
+      card.querySelector(".reel-carousel__counter").textContent = `${index + 1} / ${mediaState.items.length}`;
+      card.classList.remove("has-error", "is-buffering");
+      syncMediaControls();
+      if (sectionActive) activateCard(card);
+    };
 
-    video.addEventListener("click", () => {
-      if (Date.now() - lastTouchAt < 450) return;
-      if (clickTimer) window.clearTimeout(clickTimer);
-      clickTimer = window.setTimeout(() => {
-        if (activeVideo !== video) activateCard(card);
-        else togglePlayback(video, indicator);
-      }, 230);
-    });
-    video.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      if (clickTimer) window.clearTimeout(clickTimer);
-      if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
-    });
-    video.addEventListener("touchend", (event) => {
-      if (event.changedTouches.length !== 1) return;
-      lastTouchAt = Date.now();
-      if (lastTouchAt - lastTapAt < 280) {
+    mediaState.elements.forEach((media) => {
+      media.addEventListener("click", () => {
+        if (Date.now() < suppressTapUntil || Date.now() - lastTouchAt < 450) return;
+        if (!(media instanceof HTMLVideoElement)) return;
         if (clickTimer) window.clearTimeout(clickTimer);
-        lastTapAt = 0;
-        if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
-      } else {
-        lastTapAt = lastTouchAt;
         clickTimer = window.setTimeout(() => {
-          if (activeVideo !== video) activateCard(card);
-          else togglePlayback(video, indicator);
-        }, 290);
-      }
-    }, { passive: true });
-    video.addEventListener("play", () => {
-      if (!progressFrame) progressFrame = window.requestAnimationFrame(updateProgress);
+          if (currentVideo() !== media || activeVideo !== media) activateCard(card);
+          else togglePlayback(media, indicator);
+        }, 230);
+      });
+      media.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        if (Date.now() < suppressTapUntil) return;
+        if (clickTimer) window.clearTimeout(clickTimer);
+        if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
+      });
+      media.addEventListener("touchend", (event) => {
+        if (!(media instanceof HTMLVideoElement) || event.changedTouches.length !== 1) return;
+        lastTouchAt = Date.now();
+        if (lastTouchAt < suppressTapUntil) return;
+        if (lastTouchAt - lastTapAt < 280) {
+          if (clickTimer) window.clearTimeout(clickTimer);
+          lastTapAt = 0;
+          if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
+        } else {
+          lastTapAt = lastTouchAt;
+          clickTimer = window.setTimeout(() => {
+            if (currentVideo() !== media || activeVideo !== media) activateCard(card);
+            else togglePlayback(media, indicator);
+          }, 290);
+        }
+      }, { passive: true });
+
+      if (!(media instanceof HTMLVideoElement)) return;
+      media.addEventListener("play", () => {
+        if (media === currentVideo() && !progressFrame) {
+          progressFrame = window.requestAnimationFrame(() => updateProgress(media));
+        }
+      });
+      media.addEventListener("timeupdate", syncProgress);
+      media.addEventListener("pause", syncProgress);
+      media.addEventListener("ended", syncProgress);
+      media.addEventListener("seeked", syncProgress);
+      media.addEventListener("loadedmetadata", () => {
+        if (media === currentVideo()) {
+          fitStage(card, media);
+          const minutes = Math.floor(media.duration / 60);
+          const seconds = Math.floor(media.duration % 60).toString().padStart(2, "0");
+          duration.textContent = `${minutes}:${seconds}`;
+        }
+      });
+      media.addEventListener("waiting", () => card.classList.add("is-buffering"));
+      media.addEventListener("canplay", () => {
+        card.classList.remove("is-buffering");
+        fitStage(card, media);
+      });
+      media.addEventListener("error", () => {
+        card.classList.add("has-error");
+        setStatus("Не удалось загрузить одну из публикаций.", true);
+      });
     });
-    video.addEventListener("timeupdate", syncProgress);
-    video.addEventListener("pause", syncProgress);
-    video.addEventListener("ended", syncProgress);
-    video.addEventListener("seeked", syncProgress);
-    video.addEventListener("loadedmetadata", () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        const ratio = video.videoWidth / video.videoHeight;
-        const stage = card.querySelector(".reel-stage");
-        stage.style.setProperty("--reel-aspect", `${ratio} / 1`);
-        fitStage(card, video);
-      }
-      const duration = card.querySelector(".reel-duration");
-      if (!Number.isFinite(video.duration)) return;
-      const minutes = Math.floor(video.duration / 60);
-      const seconds = Math.floor(video.duration % 60).toString().padStart(2, "0");
-      duration.textContent = `${minutes}:${seconds}`;
+
+    mediaState.elements.forEach((media) => {
+      media.addEventListener("load", () => {
+        if (media === currentMedia()) fitStage(card, media);
+      });
     });
-    video.addEventListener("waiting", () => card.classList.add("is-buffering"));
-    video.addEventListener("canplay", () => card.classList.remove("is-buffering"));
-    video.addEventListener("error", () => {
-      card.classList.add("has-error");
-      setStatus("Не удалось загрузить одно из видео.", true);
-    });
-    video.addEventListener("canplay", () => fitStage(card, video));
+
     progress.addEventListener("input", () => {
-      if (Number.isFinite(video.duration) && video.duration > 0) {
+      const video = currentVideo();
+      if (video && Number.isFinite(video.duration) && video.duration > 0) {
         video.currentTime = video.duration * Number(progress.value) / Number(progress.max);
       }
     });
@@ -324,6 +423,28 @@ export function createReelsFeed({ supabase, getUser }) {
     progress.addEventListener("keyup", () => { isSeeking = false; });
     progress.addEventListener("change", () => { isSeeking = false; });
     progress.addEventListener("blur", () => { isSeeking = false; });
+    card.querySelector(".reel-carousel__previous").addEventListener("click", () => {
+      setSlide((mediaState.index - 1 + mediaState.items.length) % mediaState.items.length);
+    });
+    card.querySelector(".reel-carousel__next").addEventListener("click", () => {
+      setSlide((mediaState.index + 1) % mediaState.items.length);
+    });
+    card.querySelector(".reel-stage").addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button, input")) return;
+      pointerStart = { x: event.clientX, y: event.clientY };
+    });
+    card.querySelector(".reel-stage").addEventListener("pointerup", (event) => {
+      if (!pointerStart) return;
+      const deltaX = event.clientX - pointerStart.x;
+      const deltaY = event.clientY - pointerStart.y;
+      pointerStart = null;
+      if (mediaState.items.length < 2 || Math.abs(deltaX) < 45 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+      suppressTapUntil = Date.now() + 450;
+      if (clickTimer) window.clearTimeout(clickTimer);
+      setSlide((mediaState.index + (deltaX < 0 ? 1 : -1) + mediaState.items.length) % mediaState.items.length);
+    });
+    card.querySelector(".reel-stage").addEventListener("pointercancel", () => { pointerStart = null; });
+    syncMediaControls();
     card.querySelector(".reel-actions").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
@@ -332,7 +453,7 @@ export function createReelsFeed({ supabase, getUser }) {
       if (action === "comments") openComments(path);
       if (action === "save") toggleSave(card, path);
       if (action === "share") share(path);
-      if (action === "sound") toggleSound(video);
+      if (action === "sound" && currentVideo()) toggleSound(currentVideo());
     });
   }
 
@@ -371,12 +492,14 @@ export function createReelsFeed({ supabase, getUser }) {
       });
   }
 
-  function fitStage(card, video) {
-    if (!video.videoWidth || !video.videoHeight) return;
+  function fitStage(card, media) {
+    const mediaWidth = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+    const mediaHeight = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+    if (!mediaWidth || !mediaHeight) return;
     const stage = card.querySelector(".reel-stage");
-    const ratio = video.videoWidth / video.videoHeight;
+    const ratio = mediaWidth / mediaHeight;
     const isMobile = window.matchMedia("(max-width: 720px)").matches;
-    const availableWidth = Math.max(0, card.clientWidth - (isMobile ? 0 : 220));
+    const availableWidth = Math.max(0, card.clientWidth - (isMobile ? 66 : 220));
     const availableHeight = card.clientHeight;
     if (!availableWidth || !availableHeight) return;
 
@@ -516,20 +639,37 @@ export function createReelsFeed({ supabase, getUser }) {
 
   async function activateCard(card) {
     if (!sectionActive || document.hidden || card.hidden) return;
-    const video = card.querySelector("video");
-    if (activeVideo === video && !video.paused) return;
+    const mediaState = mediaByCard.get(card);
+    const media = mediaState.elements[mediaState.index];
+    const video = media instanceof HTMLVideoElement ? media : null;
+    if (video && activeVideo === video && !video.paused) return;
     const thisActivation = ++activationId;
     pauseAll(video);
     activePath = card.dataset.path;
+    if (!video) {
+      if (!media.src) {
+        try {
+          media.src = await getMediaUrl(mediaState.items[mediaState.index].path);
+          if (thisActivation !== activationId || activePath !== card.dataset.path) return;
+        } catch (error) {
+          card.classList.add("has-error");
+          setStatus(`Не удалось открыть публикацию: ${error.message}`, true);
+          return;
+        }
+      }
+      warmNextCard(card);
+      if (interactionsReady) refreshStats(card, activePath).catch(disableDbActions);
+      return;
+    }
     video.muted = !soundEnabled;
     video.preload = "auto";
     if (!video.src) {
       try {
-        video.src = await getVideoUrl(activePath);
+        video.src = await getMediaUrl(mediaState.items[mediaState.index].path);
         if (thisActivation !== activationId || activeVideo !== video) return;
       } catch (error) {
         card.classList.add("has-error");
-        setStatus(`Не удалось открыть видео: ${error.message}`, true);
+        setStatus(`Не удалось открыть публикацию: ${error.message}`, true);
         return;
       }
     }
@@ -541,23 +681,25 @@ export function createReelsFeed({ supabase, getUser }) {
   function warmNextCard(card) {
     const visibleCards = [...container.querySelectorAll(".reel-card:not([hidden])")];
     const nextCard = visibleCards[visibleCards.indexOf(card) + 1];
-    const nextVideo = nextCard?.querySelector("video");
-    if (!nextCard || nextCard.hidden || !nextVideo || nextVideo.src) return;
+    const nextState = nextCard && mediaByCard.get(nextCard);
+    const nextMedia = nextState?.elements[nextState.index];
+    if (!nextCard || nextCard.hidden || !nextMedia || nextMedia.src) return;
 
-    nextVideo.preload = "auto";
-    getVideoUrl(nextCard.dataset.path).then((url) => {
-      if (!sectionActive || nextCard.hidden || nextVideo.src) return;
-      nextVideo.src = url;
-      nextVideo.load();
+    if (nextMedia instanceof HTMLVideoElement) nextMedia.preload = "auto";
+    getMediaUrl(nextState.items[nextState.index].path).then((url) => {
+      if (!sectionActive || nextCard.hidden || nextMedia.src) return;
+      nextMedia.src = url;
+      if (nextMedia instanceof HTMLVideoElement) nextMedia.load();
     }).catch((error) => {
-      setStatus(`Не удалось подготовить следующее видео: ${error.message}`, true);
+      setStatus(`Не удалось подготовить следующую публикацию: ${error.message}`, true);
     });
   }
 
   window.addEventListener("resize", () => {
     container.querySelectorAll(".reel-card").forEach((card) => {
-      const video = card.querySelector("video");
-      if (video) fitStage(card, video);
+      const state = mediaByCard.get(card);
+      const media = state?.elements[state.index];
+      if (media) fitStage(card, media);
     });
   });
 
@@ -599,32 +741,65 @@ export function createReelsFeed({ supabase, getUser }) {
   async function load() {
     if (loaded || loading) return;
     loading = true;
-    setStatus("Загружаем видео из Supabase Storage…");
+    setStatus("Загружаем публикации…");
     try {
-      const files = await listBucket();
+      const { data: posts, error: postsError } = await supabase.from("reel_posts")
+        .select("id,user_id,title,description,hashtags,media_paths,media_types,created_at")
+        .order("created_at", { ascending: false });
+      postsTableReady = !postsError;
+      if (postsError) console.error("GadLink Reel posts:", postsError);
+
+      const uploadedPosts = (posts || []).map((post) => ({
+        path: post.media_paths[0],
+        title: post.title,
+        description: post.description,
+        hashtags: post.hashtags || [],
+        createdAt: post.created_at,
+        userId: post.user_id,
+        media: post.media_paths.map((path, index) => ({
+          path,
+          type: post.media_types[index] === "image" ? "image" : "video",
+          name: path.split("/").pop()
+        }))
+      }));
+      const postPaths = new Set(uploadedPosts.flatMap((post) => post.media.map((item) => item.path)));
+      const legacyFiles = (await listBucket())
+        .filter((file) => !postPaths.has(file.path))
+        .map((file) => ({
+          path: file.path,
+          title: "",
+          description: "",
+          hashtags: [],
+          media: [{ ...file, type: "video" }]
+        }));
+      const files = [...uploadedPosts, ...legacyFiles];
       if (!files.length) {
-        loaded = true;
-        setStatus("В bucket reels пока нет доступных видео.");
-        return;
+        setStatus(postsError
+          ? "Публикации пока недоступны. Примените supabase/reels.sql в Supabase SQL Editor."
+          : "Публикаций пока нет. Нажмите «Добавить», чтобы опубликовать видео или фото.");
+      } else {
+        const fragment = document.createDocumentFragment();
+        for (const file of files) {
+          const card = makeCard(file);
+          cardsByPath.set(file.path, card);
+          for (const media of file.media) cardsByPath.set(media.path, card);
+          fragment.append(card);
+        }
+        container.append(fragment);
+        setStatus(postsError
+          ? "Старые видео доступны. Для публикаций примените supabase/reels.sql в Supabase SQL Editor."
+          : "");
+        filterCards();
+        observeCards();
       }
-      const fragment = document.createDocumentFragment();
-      for (const file of files) {
-        const card = makeCard(file);
-        cardsByPath.set(file.path, card);
-        fragment.append(card);
-      }
-      container.append(fragment);
       loaded = true;
-      setStatus("");
-      filterCards();
-      observeCards();
       try {
         await checkInteractionTables();
         subscribeToInteractions();
         container.querySelectorAll("[data-db-action]").forEach((button) => { button.disabled = false; });
         const activeCard = activeVideo?.closest(".reel-card");
         if (activeCard) await refreshStats(activeCard, activeCard.dataset.path);
-        setStatus("");
+        if (!postsError && files.length) setStatus("");
         if (searchInput.value.trim()) filterCards();
       } catch (error) { disableDbActions(error); }
       const requestedPath = new URLSearchParams(window.location.search).get("reel");
@@ -637,6 +812,211 @@ export function createReelsFeed({ supabase, getUser }) {
       setStatus(`Не удалось загрузить Reels: ${error.message}`, true);
     } finally { loading = false; }
   }
+
+  function setPublishDialogOpen(isOpen) {
+    if (isOpen) {
+      publishStatus.textContent = "";
+      publishStatus.classList.remove("is-error");
+      publishDialog.hidden = false;
+      publishDialog.removeAttribute("inert");
+      window.requestAnimationFrame(() => {
+        publishDialog.classList.add("is-open");
+        document.getElementById("reel-publish-title-input").focus();
+      });
+      return;
+    }
+    publishDialog.classList.remove("is-open");
+    publishDialog.setAttribute("inert", "");
+    window.setTimeout(() => { publishDialog.hidden = true; }, 180);
+  }
+
+  function formatFileSize(bytes) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+  }
+
+  function getUploadMediaType(file) {
+    const mimeType = file.type.toLowerCase();
+    if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mimeType)) return "image";
+    if (["video/mp4", "video/webm", "video/quicktime", "video/ogg", "video/x-m4v"].includes(mimeType)) return "video";
+    const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
+    if (/\.(jpe?g|png|webp|gif)$/.test(extension || "")) return "image";
+    if (/\.(mp4|mov|webm|m4v|ogg)$/.test(extension || "")) return "video";
+    return null;
+  }
+
+  function parseHashtags(value) {
+    const entered = value.trim().split(/[\s,]+/).filter(Boolean);
+    const hashtags = entered.map((tag) => tag.replace(/^#+/, ""));
+    if (hashtags.length > 10 || hashtags.some((tag) => !/^[\p{L}\p{N}_]{1,30}$/u.test(tag))) {
+      throw new Error("Укажите не более 10 хештегов: буквы, цифры и подчёркивание.");
+    }
+    return [...new Set(hashtags.map((tag) => tag.toLocaleLowerCase()))];
+  }
+
+  publishFiles.addEventListener("change", () => {
+    const files = [...publishFiles.files];
+    publishFileList.replaceChildren();
+    document.getElementById("reel-publish-files-label").textContent = files.length
+      ? `Выбрано файлов: ${files.length}`
+      : "Файлы не выбраны";
+    if (files.length > MAX_MEDIA_FILES) {
+      publishStatus.textContent = `Можно выбрать не более ${MAX_MEDIA_FILES} файлов.`;
+      publishStatus.classList.add("is-error");
+      return;
+    }
+    for (const file of files) {
+      const item = document.createElement("li");
+      const type = getUploadMediaType(file);
+      const limit = type === "image" ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
+      item.textContent = `${file.name} · ${formatFileSize(file.size)}${!type ? " · неподдерживаемый формат" : file.size > limit ? " · превышен лимит размера" : ""}`;
+      publishFileList.append(item);
+    }
+    publishStatus.textContent = "";
+    publishStatus.classList.remove("is-error");
+  });
+
+  publishForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const selectedFiles = [...publishFiles.files];
+    const title = document.getElementById("reel-publish-title-input").value.trim();
+    const description = document.getElementById("reel-publish-description").value.trim();
+    const submitButton = document.getElementById("reel-publish-submit");
+    if (!userId()) {
+      publishStatus.textContent = "Войдите в аккаунт, чтобы опубликовать.";
+      publishStatus.classList.add("is-error");
+      return;
+    }
+    if (!postsTableReady) {
+      publishStatus.textContent = "Сначала примените supabase/reels.sql в Supabase SQL Editor.";
+      publishStatus.classList.add("is-error");
+      return;
+    }
+    if (selectedFiles.length < 1 || selectedFiles.length > MAX_MEDIA_FILES) {
+      publishStatus.textContent = `Выберите от 1 до ${MAX_MEDIA_FILES} файлов.`;
+      publishStatus.classList.add("is-error");
+      return;
+    }
+    const mediaTypes = selectedFiles.map(getUploadMediaType);
+    const invalidIndex = selectedFiles.findIndex((file, index) => {
+      const maxSize = mediaTypes[index] === "image" ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
+      return !mediaTypes[index] || file.size > maxSize;
+    });
+    if (invalidIndex !== -1) {
+      const file = selectedFiles[invalidIndex];
+      const message = !mediaTypes[invalidIndex]
+        ? `Формат файла «${file.name}» не поддерживается.`
+        : `Файл «${file.name}» превышает допустимый размер ${mediaTypes[invalidIndex] === "image" ? "15" : "50"} МБ.`;
+      publishStatus.textContent = message;
+      publishStatus.classList.add("is-error");
+      return;
+    }
+
+    let hashtags;
+    try {
+      hashtags = parseHashtags(document.getElementById("reel-publish-hashtags").value);
+    } catch (error) {
+      publishStatus.textContent = error.message;
+      publishStatus.classList.add("is-error");
+      return;
+    }
+
+    submitButton.disabled = true;
+    publishStatus.classList.remove("is-error");
+    const postId = crypto.randomUUID();
+    const uploadedPaths = [];
+    try {
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const file = selectedFiles[index];
+        const extension = file.name.match(/\.[a-z0-9]{1,8}$/i)?.[0].toLowerCase() || "";
+        const path = `${userId()}/${postId}/${index}${extension}`;
+        publishStatus.textContent = `Загрузка ${index + 1} из ${selectedFiles.length}…`;
+        const { error } = await supabase.storage.from(REELS_BUCKET).upload(path, file, {
+          contentType: file.type || undefined,
+          upsert: false
+        });
+        if (error) throw error;
+        uploadedPaths.push(path);
+      }
+
+      const { error } = await supabase.from("reel_posts").insert({
+        id: postId,
+        user_id: userId(),
+        title,
+        description,
+        hashtags,
+        media_paths: uploadedPaths,
+        media_types: mediaTypes
+      });
+      if (error) throw error;
+
+      const post = {
+        path: uploadedPaths[0],
+        title,
+        description,
+        hashtags,
+        media: uploadedPaths.map((path, index) => ({
+          path,
+          type: mediaTypes[index],
+          name: selectedFiles[index].name
+        }))
+      };
+      const card = makeCard(post);
+      cardsByPath.set(post.path, card);
+      uploadedPaths.forEach((path) => cardsByPath.set(path, card));
+      container.prepend(card);
+      container.scrollTo({ top: 0, behavior: "smooth" });
+      observeCards();
+      await activateCard(card);
+      publishForm.reset();
+      publishFileList.replaceChildren();
+      document.getElementById("reel-publish-files-label").textContent = "Файлы не выбраны";
+      setPublishDialogOpen(false);
+      setStatus("Публикация добавлена в Reels.");
+    } catch (error) {
+      let message = `Не удалось опубликовать: ${error.message}`;
+      if (uploadedPaths.length) {
+        try {
+          const { error: cleanupError } = await supabase.storage.from(REELS_BUCKET).remove(uploadedPaths);
+          if (cleanupError) message += ` Не удалось удалить загруженные файлы: ${cleanupError.message}`;
+        } catch (cleanupError) {
+          message += ` Не удалось удалить загруженные файлы: ${cleanupError.message}`;
+        }
+      }
+      publishStatus.textContent = message;
+      publishStatus.classList.add("is-error");
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+
+  const publishOpenButton = document.getElementById("reel-publish-open");
+  publishOpenButton.addEventListener("click", () => {
+    if (document.getElementById("reels-section").hidden) {
+      document.querySelector('[data-section="reels-section"]').click();
+    }
+    setPublishDialogOpen(true);
+  });
+  document.getElementById("reel-publish-close").addEventListener("click", () => setPublishDialogOpen(false));
+  publishDialog.querySelector(".reel-publish-dialog__backdrop")
+    .addEventListener("click", () => setPublishDialogOpen(false));
+  publishDialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setPublishDialogOpen(false);
+      publishOpenButton.focus();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...publishDialog.querySelectorAll("button:not(:disabled), input:not(:disabled), textarea:not(:disabled)")];
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
 
   container.addEventListener("wheel", (event) => {
     if (Math.abs(event.deltaY) < 20 || wheelLocked) return;
@@ -692,14 +1072,16 @@ export function createReelsFeed({ supabase, getUser }) {
       if (interactionsChannel) void supabase.removeChannel(interactionsChannel);
       interactionsChannel = null;
       interactionsOwnerId = null;
+      if (!publishDialog.hidden) setPublishDialogOpen(false);
     },
     reset() {
       this.deactivate();
       clearTimeout(interactionRefreshTimer);
       container.replaceChildren();
       cardsByPath.clear();
-      videoUrls.clear();
+      mediaUrls.clear();
       loaded = false;
+      postsTableReady = false;
       interactionsReady = false;
     }
   };
