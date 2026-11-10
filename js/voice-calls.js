@@ -1,6 +1,10 @@
 const RING_TIMEOUT_MS = 45_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const RECONNECT_GRACE_MS = 12_000;
+const ICE_SERVER_CACHE_MS = 50 * 60_000;
+const ICE_CONFIG_WAIT_MS = 3_500;
+const ICE_CONFIG_RETRY_MS = 60_000;
+const ICE_CONFIG_FETCH_TIMEOUT_MS = 8_000;
 
 const callStatusLabels = {
   ringing: "В процессе",
@@ -42,10 +46,26 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   const incomingCallRequests = new Set();
   let initialisedUserId = null;
   let historyRequest = 0;
-  let historyTimer = null;
+  let historyClearing = false;
+  let currentHistoryCalls = [];
+  let historyFilter = "all";
+  const callStatusById = new Map();
   let inboxChannelOwnerId = null;
   let inboxChannelReady = false;
   let inboxSubscriptionPromise = null;
+  let iceServerCache = null;
+  let iceServerCacheOwnerId = null;
+  let iceServerCacheUntil = 0;
+  let iceServerRequest = null;
+  let iceServerRequestOwnerId = null;
+  let soundContext = null;
+  let ringtoneTimer = null;
+  let ringtoneKind = null;
+  let ringtoneGeneration = 0;
+  let soundEnabled = localStorage.getItem("gadlink-call-sounds") !== "false";
+  let soundVolume = Number(localStorage.getItem("gadlink-call-sound-volume"));
+  if (!Number.isFinite(soundVolume)) soundVolume = 0.45;
+  let callOutputMuted = false;
 
   function setStatus(message) {
     byId("calls-status").textContent = message;
@@ -53,85 +73,108 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
   function setCallStatus(message) {
     byId("voice-call-status").textContent = message;
+    byId("voice-call-waves").classList.toggle("is-active", message === "В разговоре");
   }
 
-  function isSecureAudioContext() {
-    return window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
-  }
-
-  function setAvatar(url, username) {
-    const image = byId("voice-call-avatar");
-    const placeholder = byId("voice-call-avatar-placeholder");
-    const safeUrl = typeof url === "string" && /^https?:\/\//i.test(url) ? url : "";
-    image.hidden = !safeUrl;
-    if (safeUrl) image.src = safeUrl;
-    else image.removeAttribute("src");
-    placeholder.hidden = Boolean(safeUrl);
-    placeholder.textContent = (username || "?").trim().slice(0, 1).toLocaleUpperCase() || "?";
-  }
-
-  function showCallDialog(call, incoming = false) {
-    byId("voice-call-name").textContent = call.username || "Пользователь";
-    setAvatar(call.avatarUrl, call.username);
-    byId("voice-call-incoming-actions").hidden = !incoming;
-    byId("voice-call-active-actions").hidden = incoming;
-    byId("voice-call-timer").hidden = true;
-    byId("voice-call-mute").disabled = incoming;
-    byId("voice-call-mute").textContent = "Выключить микрофон";
-    byId("voice-call-mute").setAttribute("aria-pressed", "false");
-    dialog.hidden = false;
-  }
-
-  function hideCallDialog() {
-    dialog.hidden = true;
-    remoteAudio.pause();
-    remoteAudio.srcObject = null;
-    byId("voice-call-timer").hidden = true;
-  }
-
-  async function getPeerProfile(userId) {
-    try {
-      const profiles = await getPublicProfileNames([userId]);
-      return profiles.get(userId) || { username: "Пользователь", avatar_url: null };
-    } catch (error) {
-      console.error("GadLink voice call profile:", error);
-      return { username: "Пользователь", avatar_url: null };
+  function unlockSound() {
+    if (!soundContext) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      soundContext = new AudioContextClass();
     }
+    if (soundContext.state === "suspended") void soundContext.resume().catch(() => {});
   }
 
-  async function refreshHistory() {
-    const owner = getUser();
-    const requestId = ++historyRequest;
-    if (!owner?.id) return;
+  function stopRingtone() {
+    ringtoneGeneration += 1;
+    clearInterval(ringtoneTimer);
+    ringtoneTimer = null;
+    ringtoneKind = null;
+    if (navigator.vibrate) navigator.vibrate(0);
+  }
 
-    const { data, error } = await supabase.rpc("gadlink_get_voice_call_history");
-    if (error) {
-      console.error("GadLink voice call history:", error);
-      setStatus(`Не удалось загрузить историю звонков: ${error.message}`);
-      return;
+  function tone(frequency, start, duration, type = "sine", gain = 0.14) {
+    if (!soundEnabled || !soundContext || soundContext.state !== "running") return;
+    const oscillator = soundContext.createOscillator();
+    const envelope = soundContext.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, start);
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * soundVolume), start + 0.035);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(envelope).connect(soundContext.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.02);
+  }
+
+  function playPattern(kind) {
+    if (!soundEnabled) return;
+    unlockSound();
+    const generation = ringtoneGeneration;
+    if (!soundContext || soundContext.state !== "running") return;
+    const now = soundContext.currentTime + 0.04;
+    const note = (frequency, offset, duration, gain) => tone(frequency, now + offset, duration, "sine", gain);
+    if (kind === "incoming") {
+      note(659.25, 0, 0.23, 0.12); note(783.99, 0.28, 0.34, 0.12);
+      note(987.77, 0.72, 0.24, 0.1); note(783.99, 1.02, 0.44, 0.1);
+    } else {
+      note(440, 0, 0.75, 0.09); note(480, 0, 0.75, 0.04);
+      note(440, 1.05, 0.75, 0.09); note(480, 1.05, 0.75, 0.04);
     }
-    if (getUser()?.id !== owner.id || requestId !== historyRequest) return;
+    if (generation !== ringtoneGeneration) return;
+  }
 
-    const calls = data || [];
-    const peerIds = [...new Set(calls.map((call) =>
-      call.caller_id === owner.id ? call.callee_id : call.caller_id
-    ).filter(isUuid))];
-    let names = new Map();
-    try {
-      names = await getPublicProfileNames(peerIds);
-    } catch (nameError) {
-      console.error("GadLink voice call history names:", nameError);
+  function startRingtone(kind) {
+    stopRingtone();
+    if (!soundEnabled) return;
+    ringtoneKind = kind;
+    const generation = ringtoneGeneration;
+    playPattern(kind);
+    if (navigator.vibrate && typeof navigator.vibrate === "function") {
+      navigator.vibrate(kind === "incoming" ? [180, 120, 180, 850] : [90, 1300]);
     }
-    if (getUser()?.id !== owner.id || requestId !== historyRequest) return;
+    ringtoneTimer = setInterval(() => {
+      if (generation !== ringtoneGeneration || ringtoneKind !== kind) return;
+      playPattern(kind);
+      if (navigator.vibrate) navigator.vibrate(kind === "incoming" ? [180, 120, 180, 850] : [90, 1300]);
+    }, 2600);
+  }
 
+  function playCallCue(kind) {
+    stopRingtone();
+    if (!soundEnabled) return;
+    unlockSound();
+    if (!soundContext || soundContext.state !== "running") return;
+    const now = soundContext.currentTime + 0.03;
+    if (kind === "connected") { tone(523.25, now, 0.12, "sine", 0.11); tone(783.99, now + 0.1, 0.24, "sine", 0.1); }
+    else if (kind === "rejected") { tone(493.88, now, 0.17, "triangle", 0.11); tone(349.23, now + 0.18, 0.34, "triangle", 0.1); }
+    else if (kind === "ended") { tone(587.33, now, 0.12, "sine", 0.1); tone(392, now + 0.14, 0.22, "sine", 0.08); }
+  }
+
+  function setSoundsEnabled(enabled) {
+    soundEnabled = enabled;
+    localStorage.setItem("gadlink-call-sounds", String(enabled));
+    if (!enabled) stopRingtone();
+    byId("call-sounds-enabled").checked = enabled;
+  }
+
+  function renderHistory(owner, names = new Map()) {
     const history = byId("call-history");
+    const calls = currentHistoryCalls.filter((call) => {
+      const outgoing = call.caller_id === owner.id;
+      if (historyFilter === "missed") return call.status === "missed" && !outgoing;
+      if (historyFilter === "incoming") return !outgoing;
+      if (historyFilter === "outgoing") return outgoing;
+      return true;
+    });
     history.replaceChildren();
     if (!calls.length) {
       const empty = document.createElement("p");
       empty.className = "call-history-empty";
-      empty.textContent = "Здесь появится история звонков.";
+      empty.textContent = currentHistoryCalls.length
+        ? "Для этого фильтра звонков нет."
+        : "Здесь появится история звонков.";
       history.append(empty);
-      setStatus("");
       return;
     }
 
@@ -169,8 +212,178 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       row.append(details, callback);
       history.append(row);
     }
+  }
+
+  function isSecureAudioContext() {
+    return window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
+  }
+
+  function setAvatar(url, username) {
+    const image = byId("voice-call-avatar");
+    const placeholder = byId("voice-call-avatar-placeholder");
+    const safeUrl = typeof url === "string" && /^https?:\/\//i.test(url) ? url : "";
+    image.hidden = !safeUrl;
+    if (safeUrl) image.src = safeUrl;
+    else image.removeAttribute("src");
+    placeholder.hidden = Boolean(safeUrl);
+    placeholder.textContent = (username || "?").trim().slice(0, 1).toLocaleUpperCase() || "?";
+  }
+
+  function showCallDialog(call, incoming = false) {
+    byId("voice-call-name").textContent = call.username || "Пользователь";
+    setAvatar(call.avatarUrl, call.username);
+    byId("voice-call-incoming-actions").hidden = !incoming;
+    byId("voice-call-active-actions").hidden = incoming;
+    byId("voice-call-accept").disabled = incoming && !call.channelReady;
+    byId("voice-call-error-actions").hidden = true;
+    byId("voice-call-timer").hidden = true;
+    byId("voice-call-mute").disabled = incoming;
+    byId("voice-call-mute").textContent = "Выключить микрофон";
+    byId("voice-call-mute").setAttribute("aria-pressed", "false");
+    byId("voice-call-peer-state").hidden = true;
+    byId("voice-call-quality").textContent = "Сеть: подключение";
+    byId("voice-call-dialog").classList.remove("is-minimized");
+    byId("voice-call-dialog").setAttribute("aria-modal", "true");
+    byId("voice-call-minimized").hidden = true;
+    dialog.hidden = false;
+  }
+
+  function hideCallDialog() {
+    dialog.hidden = true;
+    remoteAudio.pause();
+    remoteAudio.srcObject = null;
+    byId("voice-call-timer").hidden = true;
+    byId("voice-call-minimized").hidden = true;
+    byId("voice-call-dialog").classList.remove("is-minimized");
+  }
+
+  function minimizeCall() {
+    if (!activeCall) return;
+    dialog.hidden = true;
+    dialog.setAttribute("aria-modal", "false");
+    byId("voice-call-minimized-name").textContent = activeCall.username || "Звонок";
+    byId("voice-call-minimized").hidden = false;
+  }
+
+  function restoreCall() {
+    if (!activeCall) return;
+    byId("voice-call-minimized").hidden = true;
+    dialog.hidden = false;
+    dialog.setAttribute("aria-modal", "true");
+    dialog.classList.remove("is-minimized");
+  }
+
+  function requestProfile() {
+    if (!activeCall?.peerId) return;
+    window.dispatchEvent(new CustomEvent("gadlink:open-contact-profile", {
+      detail: { userId: activeCall.peerId, username: activeCall.username, avatarUrl: activeCall.avatarUrl }
+    }));
+    setCallStatus("Профиль собеседника пока доступен в разделе «Друзья».");
+  }
+
+  async function refreshAudioDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const input = byId("voice-call-input-device");
+      const output = byId("voice-call-output-device");
+      const selectedInput = input.value;
+      const selectedOutput = output.value;
+      input.replaceChildren(new Option("По умолчанию", ""));
+      output.replaceChildren(new Option("По умолчанию", ""));
+      for (const device of devices) {
+        if (device.kind === "audioinput") input.add(new Option(device.label || `Микрофон ${input.length}`, device.deviceId));
+        if (device.kind === "audiooutput") output.add(new Option(device.label || `Устройство ${output.length}`, device.deviceId));
+      }
+      if ([...input.options].some((option) => option.value === selectedInput)) input.value = selectedInput;
+      if ([...output.options].some((option) => option.value === selectedOutput)) output.value = selectedOutput;
+      output.hidden = typeof remoteAudio.setSinkId !== "function";
+    } catch (error) {
+      console.warn("GadLink call devices:", error);
+    }
+  }
+
+  async function getPeerProfile(userId) {
+    try {
+      const profiles = await getPublicProfileNames([userId]);
+      return profiles.get(userId) || { username: "Пользователь", avatar_url: null };
+    } catch (error) {
+      console.error("GadLink voice call profile:", error);
+      return { username: "Пользователь", avatar_url: null };
+    }
+  }
+
+  async function refreshHistory() {
+    const owner = getUser();
+    if (historyClearing) return;
+    const requestId = ++historyRequest;
+    if (!owner?.id) return;
+
+    const { data, error } = await supabase.rpc("gadlink_get_voice_call_history");
+    if (error) {
+      console.error("GadLink voice call history:", error);
+      setStatus(`Не удалось загрузить историю звонков: ${error.message}`);
+      return;
+    }
+    if (getUser()?.id !== owner.id || requestId !== historyRequest) return;
+
+    const calls = data || [];
+    const peerIds = [...new Set(calls.map((call) =>
+      call.caller_id === owner.id ? call.callee_id : call.caller_id
+    ).filter(isUuid))];
+    let names = new Map();
+    try {
+      names = await getPublicProfileNames(peerIds);
+    } catch (nameError) {
+      console.error("GadLink voice call history names:", nameError);
+    }
+    if (getUser()?.id !== owner.id || requestId !== historyRequest) return;
+
+    currentHistoryCalls = calls;
+    for (const call of calls) callStatusById.set(call.id, call.status);
+    renderHistory(owner, names);
     setStatus("");
   }
+
+  async function clearHistory() {
+    const owner = getUser();
+    if (!owner?.id) {
+      setStatus("Войдите в аккаунт, чтобы очистить историю звонков.");
+      return;
+    }
+    if (!window.confirm("Удалить всю историю звонков этого аккаунта? Это действие нельзя отменить.")) return;
+    const button = byId("call-history-clear");
+    button.disabled = true;
+    historyClearing = true;
+    historyRequest += 1;
+    setStatus("Очищаем историю звонков…");
+    try {
+      const { error } = await supabase.rpc("gadlink_clear_voice_call_history");
+      if (error) throw error;
+      if (getUser()?.id !== owner.id) return;
+      currentHistoryCalls = [];
+      renderHistory(owner);
+      setStatus("История звонков очищена.");
+    } catch (error) {
+      console.error("GadLink voice call history clear:", error);
+      setStatus(`Не удалось очистить историю звонков: ${error.message}`);
+    } finally {
+      historyClearing = false;
+      button.disabled = false;
+    }
+  }
+
+  byId("call-history-clear").addEventListener("click", () => void clearHistory());
+  document.querySelectorAll("[data-call-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      historyFilter = button.dataset.callFilter;
+      document.querySelectorAll("[data-call-filter]").forEach((filterButton) => {
+        filterButton.setAttribute("aria-pressed", String(filterButton === button));
+      });
+      const owner = getUser();
+      if (owner?.id) void refreshHistory();
+    });
+  });
 
   async function broadcast(type, payload = {}) {
     if (!activeCall?.channel) return;
@@ -195,34 +408,6 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     }
   }
 
-  async function sendCallSignal(callId, fromId, toId, type) {
-    const channel = supabase.channel(`voice-call:${callId}`, {
-      config: { private: true, broadcast: { ack: true } }
-    });
-    try {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Realtime channel timeout")), 8000);
-        channel.subscribe((status, error) => {
-          if (status === "SUBSCRIBED") {
-            clearTimeout(timeout);
-            resolve();
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            clearTimeout(timeout);
-            reject(error || new Error(`Realtime: ${status}`));
-          }
-        });
-      });
-      const result = await channel.send({
-        type: "broadcast",
-        event: "call-signal",
-        payload: { type, callId, from: fromId, to: toId }
-      });
-      if (result !== "ok") throw new Error(`Realtime broadcast: ${result}`);
-    } finally {
-      await supabase.removeChannel(channel);
-    }
-  }
-
   async function transition(action) {
     if (!activeCall?.id) return null;
     const { data, error } = await supabase.rpc("gadlink_transition_voice_call", {
@@ -234,101 +419,200 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   }
 
   async function getIceServers() {
-    const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
-    const { data, error } = await supabase.functions.invoke("voice-ice-config", { method: "GET" });
-    if (error) {
-      console.warn("GadLink TURN configuration is unavailable; using STUN only.", error);
-      return iceServers;
+    const ownerId = userId();
+    const stunOnly = [{ urls: "stun:stun.l.google.com:19302" }];
+    if (!ownerId) return stunOnly;
+    if (iceServerCacheOwnerId === ownerId && Date.now() < iceServerCacheUntil) {
+      return iceServerCache;
     }
-    if (!Array.isArray(data?.iceServers)) {
-      console.warn("GadLink TURN configuration returned no ICE servers.");
-      return iceServers;
+    if (!iceServerRequest || iceServerRequestOwnerId !== ownerId) {
+      iceServerRequestOwnerId = ownerId;
+      iceServerRequest = (async () => {
+        try {
+          let timeout;
+          const turnResult = await Promise.race([
+            supabase.functions.invoke("voice-ice-config", { method: "GET" }),
+            new Promise((resolve) => {
+              timeout = setTimeout(() => resolve({ error: new Error("TURN config timeout") }), ICE_CONFIG_FETCH_TIMEOUT_MS);
+            })
+          ]).finally(() => clearTimeout(timeout));
+          const { data, error } = turnResult;
+          if (error) throw error;
+          const turnServers = (Array.isArray(data?.iceServers) ? data.iceServers : []).filter((server) => {
+            const urls = Array.isArray(server?.urls) ? server.urls : [server?.urls];
+            return urls.some((url) => typeof url === "string" && /^turns?:/i.test(url)) &&
+              typeof server.username === "string" && typeof server.credential === "string";
+          });
+          if (!turnServers.length) throw new Error("Сервер не вернул TURN-конфигурацию.");
+          const result = [...stunOnly, ...turnServers];
+          if (userId() === ownerId) {
+            iceServerCache = result;
+            iceServerCacheOwnerId = ownerId;
+            iceServerCacheUntil = Date.now() + ICE_SERVER_CACHE_MS;
+          }
+          return result;
+        } catch (error) {
+          console.warn("GadLink TURN configuration is unavailable; using STUN only.", error);
+          if (userId() === ownerId) {
+            iceServerCache = stunOnly;
+            iceServerCacheOwnerId = ownerId;
+            iceServerCacheUntil = Date.now() + ICE_CONFIG_RETRY_MS;
+          }
+          return stunOnly;
+        } finally {
+          if (iceServerRequestOwnerId === ownerId) {
+            iceServerRequest = null;
+            iceServerRequestOwnerId = null;
+          }
+        }
+      })();
     }
-    return [...iceServers, ...data.iceServers];
+    const request = iceServerRequest;
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(stunOnly), ICE_CONFIG_WAIT_MS);
+      request.then((result) => {
+        clearTimeout(timeout);
+        resolve(result);
+      });
+    });
   }
 
   async function createPeerConnection() {
     if (!activeCall) throw new Error("Звонок уже завершён.");
     if (activeCall.peerConnection) return activeCall.peerConnection;
+    const call = activeCall;
+    if (call.peerConnectionPromise) return call.peerConnectionPromise;
+    call.peerConnectionPromise = (async () => {
+      const iceServers = await getIceServers();
+      if (activeCall !== call) throw new Error("Звонок завершён до подключения.");
+      const peerConnection = new RTCPeerConnection({ iceServers });
+      call.peerConnection = peerConnection;
+      call.pendingCandidates ||= [];
 
-    const iceServers = await getIceServers();
-    if (!activeCall) throw new Error("Звонок завершён до подключения.");
-    const peerConnection = new RTCPeerConnection({ iceServers });
-    activeCall.peerConnection = peerConnection;
-    activeCall.pendingCandidates = [];
-
-    for (const track of activeCall.localStream.getAudioTracks()) {
-      peerConnection.addTrack(track, activeCall.localStream);
-    }
-    peerConnection.ontrack = (event) => {
-      const [stream] = event.streams;
-      if (!stream || activeCall?.peerConnection !== peerConnection) return;
-      remoteAudio.srcObject = stream;
-      void remoteAudio.play().catch((error) => {
-        console.warn("GadLink remote audio autoplay was blocked:", error);
-        setCallStatus("Нажмите на экран, чтобы включить звук собеседника.");
-      });
-    };
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate && activeCall?.peerConnection === peerConnection) {
-        void broadcast("ice", { candidate: event.candidate.toJSON() });
+      for (const track of call.localStream?.getAudioTracks() || []) {
+        peerConnection.addTrack(track, call.localStream);
       }
-    };
-    peerConnection.oniceconnectionstatechange = () => {
-      if (activeCall?.peerConnection !== peerConnection) return;
-      const state = peerConnection.iceConnectionState;
-      if (state === "connected" || state === "completed") {
-        markConnected();
-      } else if (state === "disconnected") {
-        setCallStatus("Связь прервалась, пытаемся восстановить…");
-        clearTimeout(activeCall.disconnectTimer);
-        activeCall.disconnectTimer = setTimeout(() => {
-          if (peerConnection.iceConnectionState === "disconnected") {
-            void failCall("Соединение потеряно.");
+      peerConnection.ontrack = (event) => {
+        const [stream] = event.streams;
+        if (!stream || activeCall?.peerConnection !== peerConnection) return;
+        remoteAudio.srcObject = stream;
+        void remoteAudio.play().catch((error) => {
+          console.warn("GadLink remote audio autoplay was blocked:", error);
+          setCallStatus("Нажмите на экран, чтобы включить звук собеседника.");
+        });
+      };
+      peerConnection.onicecandidate = (event) => {
+        if (activeCall?.peerConnection === peerConnection) {
+          void broadcast("ice", event.candidate
+            ? { candidate: event.candidate.toJSON() }
+            : { candidate: null, complete: true });
+        }
+      };
+      peerConnection.onicecandidateerror = (event) => {
+        console.warn("GadLink ICE candidate error:", event.errorCode, event.url, event.errorText);
+      };
+      peerConnection.oniceconnectionstatechange = () => {
+        if (activeCall?.peerConnection !== peerConnection) return;
+        const state = peerConnection.iceConnectionState;
+        if (state === "connected" || state === "completed") {
+          markConnected();
+        } else if (state === "disconnected") {
+          setCallStatus("Связь прервалась, пытаемся восстановить…");
+          byId("voice-call-quality").textContent = "Сеть: переподключение…";
+          byId("voice-call-quality").classList.add("is-poor");
+          clearTimeout(call.disconnectTimer);
+          call.disconnectTimer = setTimeout(() => {
+            if (activeCall === call && peerConnection.iceConnectionState === "disconnected") {
+              void failCall("Соединение потеряно.");
+            }
+          }, RECONNECT_GRACE_MS);
+        } else if (state === "failed") {
+          void failCall("Не удалось установить голосовое соединение. Проверьте сеть или TURN.");
+        }
+      };
+      peerConnection.onconnectionstatechange = () => {
+        if (activeCall?.peerConnection !== peerConnection) return;
+        if (peerConnection.connectionState === "connected") markConnected();
+        if (peerConnection.connectionState === "failed") {
+          void failCall("WebRTC не смог установить соединение. Нужен доступный TURN-сервер или другая сеть.");
+        }
+      };
+      call.qualityTimer = setInterval(async () => {
+        if (activeCall !== call) return;
+        try {
+          const report = await peerConnection.getStats();
+          let rtt = null;
+          for (const stat of report.values()) {
+            if (stat.type === "candidate-pair" && stat.state === "succeeded" && (stat.nominated || stat.selected)) rtt = stat.currentRoundTripTime;
           }
-        }, RECONNECT_GRACE_MS);
-      } else if (state === "failed") {
-        void failCall("Не удалось установить голосовое соединение. Проверьте сеть или TURN.");
+          const state = peerConnection.iceConnectionState;
+          const label = state === "connected" || state === "completed"
+            ? (rtt !== null && rtt > 0.45 ? "Сеть: слабый сигнал" : "Сеть: хорошая")
+            : state === "disconnected" ? "Сеть: переподключение…" : "Сеть: соединение";
+          byId("voice-call-quality").textContent = label;
+          byId("voice-call-quality").classList.toggle("is-poor", label.includes("слабый") || state === "disconnected");
+        } catch (error) { console.warn("GadLink call quality:", error); }
+      }, 2500);
+      return peerConnection;
+    })();
+    try {
+      return await call.peerConnectionPromise;
+    } finally {
+      call.peerConnectionPromise = null;
+    }
+  }
+
+  function startConnectionTimer(call) {
+    clearTimeout(call.connectionTimer);
+    call.connectionTimer = setTimeout(() => {
+      if (activeCall === call && !call.connected) {
+        void failCall("Не удалось установить соединение. Проверьте микрофон, сеть и настройки TURN.");
       }
-    };
-    return peerConnection;
+    }, 30_000);
   }
 
   async function flushCandidates() {
-    if (!activeCall?.peerConnection?.remoteDescription) return;
-    const pending = activeCall.pendingCandidates.splice(0);
+    const call = activeCall;
+    const peerConnection = call?.peerConnection;
+    if (!peerConnection?.remoteDescription) return;
+    const pending = call.pendingCandidates.splice(0);
     for (const candidate of pending) {
-      await activeCall.peerConnection.addIceCandidate(candidate);
+      if (activeCall !== call) return;
+      await peerConnection.addIceCandidate(candidate);
     }
   }
 
   async function createOffer() {
     if (!activeCall?.outgoing || activeCall.peerConnection?.localDescription || activeCall.offerStarted) return;
-    activeCall.offerStarted = true;
+    const call = activeCall;
+    if (!call.localStream) {
+      call.offerPending = true;
+      return;
+    }
+    call.offerStarted = true;
     try {
       setCallStatus("Соединение…");
       const peerConnection = await createPeerConnection();
-      if (!activeCall?.outgoing) return;
+      if (activeCall !== call || !call.outgoing) return;
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       await broadcast("offer", { description: peerConnection.localDescription });
     } catch (error) {
       console.error("GadLink voice call offer:", error);
-      await failCall(`Не удалось начать соединение: ${error.message}`);
+      if (activeCall === call) await failCall(`Не удалось начать соединение: ${error.message}`);
     }
   }
 
   async function handleSignal(payload) {
     if (!activeCall || payload?.callId !== activeCall.id ||
         payload.from !== activeCall.peerId || payload.to !== getUser()?.id) return;
+    const call = activeCall;
 
     try {
       if (payload.type === "accepted" && activeCall.outgoing) {
         activeCall.accepted = true;
         if (activeCall.timeout) clearTimeout(activeCall.timeout);
-        activeCall.connectionTimer = setTimeout(() => {
-          void failCall("Не удалось установить соединение за отведённое время.");
-        }, 30_000);
+        startConnectionTimer(activeCall);
         await createOffer();
       } else if (payload.type === "offer" && !activeCall.outgoing && activeCall.accepted) {
         const peerConnection = await createPeerConnection();
@@ -340,13 +624,11 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       } else if (payload.type === "answer" && activeCall.outgoing && activeCall.peerConnection) {
         await activeCall.peerConnection.setRemoteDescription(payload.description);
         await flushCandidates();
-      } else if (payload.type === "ice" && payload.candidate && activeCall.peerConnection) {
-        const candidate = new RTCIceCandidate(payload.candidate);
-        if (activeCall.peerConnection.remoteDescription) {
-          await activeCall.peerConnection.addIceCandidate(candidate);
-        } else {
-          activeCall.pendingCandidates.push(candidate);
-        }
+      } else if (payload.type === "ice" && (payload.candidate || payload.complete)) {
+        const peerConnection = activeCall.peerConnection;
+        const candidate = payload.candidate ? new RTCIceCandidate(payload.candidate) : null;
+        if (peerConnection?.remoteDescription) await peerConnection.addIceCandidate(candidate);
+        else activeCall.pendingCandidates.push(candidate);
       } else if (payload.type === "rejected") {
         await finishCall("Звонок отклонён.", false);
       } else if (payload.type === "busy") {
@@ -357,10 +639,15 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         await finishCall("Звонок завершён собеседником.", false);
       } else if (payload.type === "failed") {
         await finishCall("Соединение завершено.", false);
+      } else if (payload.type === "call-state") {
+        const peerState = byId("voice-call-peer-state");
+        const label = payload.held ? "Собеседник удерживает звонок" : payload.muted ? "Микрофон собеседника выключен" : "";
+        peerState.textContent = label;
+        peerState.hidden = !label;
       }
     } catch (error) {
       console.error("GadLink voice call signal:", error);
-      await failCall(`Ошибка соединения: ${error.message}`);
+      if (activeCall === call) await failCall(`Ошибка соединения: ${error.message}`);
     }
   }
 
@@ -368,7 +655,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     if (!activeCall) throw new Error("Звонок уже завершён.");
     const call = activeCall;
     const channel = supabase.channel(`voice-call:${call.id}`, {
-      config: { private: true, broadcast: { ack: true } }
+      config: { private: true }
     });
     call.channel = channel;
     channel.on("broadcast", { event: "call-signal" }, ({ payload }) => {
@@ -398,18 +685,21 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       });
     });
     if (activeCall !== call) throw new Error("Звонок завершён.");
+    call.channelReady = true;
+    if (!call.outgoing) byId("voice-call-accept").disabled = false;
   }
 
   function startHeartbeat() {
     if (!activeCall) return;
-    clearInterval(activeCall.heartbeat);
-    activeCall.heartbeat = setInterval(async () => {
-      if (!activeCall) return;
+    const call = activeCall;
+    clearInterval(call.heartbeat);
+    call.heartbeat = setInterval(async () => {
+      if (activeCall !== call) return;
       try {
         await transition("heartbeat");
       } catch (error) {
         console.error("GadLink call heartbeat:", error);
-        await failCall("Сервер потерял связь со звонком.");
+        if (activeCall === call) await failCall("Сервер потерял связь со звонком.");
       }
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -426,23 +716,32 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     byId("voice-call-mute").disabled = false;
     byId("voice-call-timer").hidden = false;
     setCallStatus("В разговоре");
+    byId("voice-call-quality").textContent = "Сеть: хорошая";
+    byId("voice-call-quality").classList.remove("is-poor");
+    playCallCue("connected");
+    void broadcast("call-state", { muted: Boolean(callIsMuted()), held: false });
+    void refreshAudioDevices();
+    const call = activeCall;
     activeCall.timer = setInterval(() => {
-      if (!activeCall?.connectedAt) return;
-      byId("voice-call-timer").textContent = formatDuration((Date.now() - activeCall.connectedAt) / 1000);
+      if (activeCall !== call || !call.connectedAt) return;
+      const elapsed = formatDuration((Date.now() - call.connectedAt) / 1000);
+      byId("voice-call-timer").textContent = elapsed;
+      byId("voice-call-minimized-timer").textContent = elapsed;
     }, 1000);
     startHeartbeat();
-    void refreshHistory();
   }
 
-  async function releaseCallResources() {
-    const call = activeCall;
-    if (!call) return;
+  async function releaseCallResources({ keepErrorDialog = false, expectedCall = null } = {}) {
+    const call = expectedCall || activeCall;
+    if (!call || activeCall !== call) return;
     activeCall = null;
+    startingCall = false;
     clearTimeout(call.timeout);
     clearTimeout(call.connectionTimer);
     clearTimeout(call.disconnectTimer);
     clearInterval(call.timer);
     clearInterval(call.heartbeat);
+    clearInterval(call.qualityTimer);
     if (call.peerConnection) {
       call.peerConnection.ontrack = null;
       call.peerConnection.onicecandidate = null;
@@ -453,19 +752,32 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     remoteAudio.pause();
     remoteAudio.srcObject = null;
     if (call.channel) {
-      try {
-        await supabase.removeChannel(call.channel);
-      } catch (error) {
+      void supabase.removeChannel(call.channel).catch((error) => {
         console.error("GadLink remove call channel:", error);
-      }
+      });
     }
-    hideCallDialog();
-    await refreshHistory();
+    callOutputMuted = false;
+    byId("voice-call-output-toggle").setAttribute("aria-pressed", "false");
+    if (keepErrorDialog) {
+      byId("voice-call-incoming-actions").hidden = true;
+      byId("voice-call-active-actions").hidden = true;
+      byId("voice-call-error-actions").hidden = false;
+      byId("voice-call-timer").hidden = true;
+      dialog.hidden = false;
+    } else {
+      hideCallDialog();
+    }
+    void refreshHistory();
   }
 
   async function finishCall(message, sendTransition = true, action = null) {
     const call = activeCall;
-    if (!call) return;
+    if (!call || call.finishing) return;
+    call.finishing = true;
+    const outcome = action === "missed" || message?.toLowerCase().includes("пропущ") ? "missed"
+      : message?.toLowerCase().includes("отклон") || message?.toLowerCase().includes("занят") ? "rejected" : "ended";
+    playCallCue(outcome === "rejected" ? "rejected" : "ended");
+    if (outcome === "missed" && !call.outgoing) notifyMissedCall(call.username);
     if (message) setStatus(message);
     if (sendTransition) {
       try {
@@ -475,19 +787,22 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         setStatus(`Не удалось обновить историю звонка: ${error.message}`);
       }
     }
-    await releaseCallResources();
+    if (activeCall === call) await releaseCallResources({ expectedCall: call });
   }
 
   async function failCall(message) {
-    if (!activeCall) return;
+    const call = activeCall;
+    if (!call || call.finishing) return;
+    call.finishing = true;
     setStatus(message);
-    try {
-      await broadcast("failed");
-      await transition("failed");
-    } catch (error) {
-      console.error("GadLink fail call:", error);
+    setCallStatus(message);
+    void broadcast("failed");
+    if (call.id) {
+      void transition("failed").catch((error) => {
+        console.error("GadLink fail call status:", error);
+      });
     }
-    await releaseCallResources();
+    await releaseCallResources({ keepErrorDialog: true, expectedCall: call });
   }
 
   async function startCall(peerId, peerName = null, avatarUrl = null) {
@@ -510,70 +825,96 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     }
 
     startingCall = true;
-    let localStream;
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    } catch (error) {
-      startingCall = false;
-      console.error("GadLink microphone access:", error);
-      setStatus(error.name === "NotAllowedError"
-        ? "Разрешите доступ к микрофону в настройках браузера."
-        : `Не удалось получить доступ к микрофону: ${error.message}`);
-      return;
-    }
-
-    if (activeCall || getUser()?.id !== owner.id) {
-      for (const track of localStream.getTracks()) track.stop();
-      startingCall = false;
-      return;
-    }
-    const profile = await getPeerProfile(peerId);
-    const peer = {
-      username: peerName || profile.username || "Пользователь",
-      avatar_url: avatarUrl || profile.avatar_url
+    const callStartedAt = Date.now();
+    const call = {
+      id: null,
+      peerId,
+      username: peerName || "Пользователь",
+      avatarUrl,
+      outgoing: true,
+      accepted: false,
+      connected: false,
+      localStream: null,
+      peerConnection: null,
+      pendingCandidates: []
     };
-    try {
+    activeCall = call;
+    showCallDialog(call);
+    setCallStatus("Готовим вызов…");
+
+    // Fetch ICE credentials while the phone is ringing, instead of after answer.
+    void getIceServers();
+    void getPeerProfile(peerId).then((profile) => {
+      if (activeCall !== call) return;
+      call.username = peerName || profile.username || "Пользователь";
+      call.avatarUrl = avatarUrl || profile.avatar_url || null;
+      byId("voice-call-name").textContent = call.username;
+      setAvatar(call.avatarUrl, call.username);
+    });
+
+    const mediaSetup = navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then((stream) => {
+        if (activeCall !== call) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        call.localStream = stream;
+        setCallStatus(call.accepted ? "Соединение…" : call.id ? "Звоним…" : "Отправляем вызов…");
+        if (call.accepted) void createOffer();
+      })
+      .catch(async (error) => {
+        console.error("GadLink microphone access:", error);
+        if (activeCall === call) {
+          await failCall(error.name === "NotAllowedError"
+            ? "Разрешите доступ к микрофону в настройках браузера."
+            : `Не удалось получить доступ к микрофону: ${error.message}`);
+        }
+        throw error;
+      });
+
+    const signalingSetup = (async () => {
       const { data: callId, error } = await supabase.rpc("gadlink_start_voice_call", {
         peer_user_id: peerId
       });
       if (error) throw error;
       if (!isUuid(callId)) throw new Error("Сервер не вернул идентификатор звонка.");
-
-      activeCall = {
-        id: callId,
-        peerId,
-        username: peer.username || "Пользователь",
-        avatarUrl: peer.avatar_url || null,
-        outgoing: true,
-        accepted: false,
-        connected: false,
-        localStream,
-        peerConnection: null,
-        pendingCandidates: []
-      };
-      showCallDialog(activeCall);
-      setCallStatus("Звоним…");
-      activeCall.timeout = setTimeout(() => {
+      call.id = callId;
+      if (activeCall !== call || getUser()?.id !== owner.id) {
+        const { error: cancelError } = await supabase.rpc("gadlink_transition_voice_call", {
+          target_call_id: callId,
+          call_action: "cancel"
+        });
+        if (cancelError) {
+          await supabase.rpc("gadlink_transition_voice_call", {
+            target_call_id: callId,
+            call_action: "failed"
+          });
+        }
+        return;
+      }
+      call.timeout = setTimeout(() => {
         if (activeCall?.id !== callId) return;
         setCallStatus("Нет ответа.");
-        void broadcast("missed").finally(() => finishCall(null, true, "missed"));
-      }, RING_TIMEOUT_MS);
+        void finishCall(null, true, "missed");
+      }, Math.max(0, RING_TIMEOUT_MS - (Date.now() - callStartedAt)));
+      setCallStatus(call.localStream
+        ? call.accepted ? "Соединение…" : "Звоним…"
+        : "Вызов отправлен. Ожидаем доступ к микрофону…");
       await joinCallChannel();
-    } catch (error) {
-      console.error("GadLink start call:", error);
-      for (const track of localStream.getTracks()) track.stop();
-      if (activeCall) {
-        try {
-          await transition("failed");
-        } catch (transitionError) {
-          console.error("GadLink failed call cleanup:", transitionError);
-        }
-        await releaseCallResources();
-      }
-      setStatus(`Не удалось начать звонок: ${error.message}`);
-    } finally {
-      startingCall = false;
+    })();
+    void signalingSetup.catch((error) => {
+      if (activeCall === call) void failCall(`Не удалось начать звонок: ${error.message}`);
+    });
+
+    const [mediaResult, signalingResult] = await Promise.allSettled([mediaSetup, signalingSetup]);
+    if (activeCall === call && signalingResult.status === "rejected") {
+      console.error("GadLink start call:", signalingResult.reason);
+      await failCall(`Не удалось начать звонок: ${signalingResult.reason.message}`);
     }
+    if (mediaResult.status === "rejected" && signalingResult.status === "rejected") {
+      setStatus(`Не удалось начать звонок: ${signalingResult.reason.message}`);
+    }
+    startingCall = false;
   }
 
   async function receiveIncomingCall(row) {
@@ -588,7 +929,6 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
           call_action: "reject"
         });
         if (error) throw error;
-        await sendCallSignal(row.id, owner.id, row.caller_id, "busy");
       } catch (error) {
         console.error("GadLink busy call rejection:", error);
       }
@@ -597,13 +937,11 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
     incomingCallRequests.add(row.id);
     try {
-      const profile = await getPeerProfile(row.caller_id);
-      if (getUser()?.id !== owner.id || activeCall) return;
-      activeCall = {
+      const call = {
         id: row.id,
         peerId: row.caller_id,
-        username: profile.username || "Пользователь",
-        avatarUrl: profile.avatar_url || null,
+        username: "Пользователь",
+        avatarUrl: null,
         outgoing: false,
         accepted: false,
         connected: false,
@@ -611,9 +949,19 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         peerConnection: null,
         pendingCandidates: []
       };
-      showCallDialog(activeCall, true);
+      if (getUser()?.id !== owner.id || activeCall) return;
+      activeCall = call;
+      showCallDialog(call, true);
       setCallStatus("Входящий звонок…");
-      activeCall.timeout = setTimeout(() => {
+      void getIceServers();
+      void getPeerProfile(row.caller_id).then((profile) => {
+        if (activeCall !== call) return;
+        call.username = profile.username || "Пользователь";
+        call.avatarUrl = profile.avatar_url || null;
+        byId("voice-call-name").textContent = call.username;
+        setAvatar(call.avatarUrl, call.username);
+      });
+      call.timeout = setTimeout(() => {
         if (activeCall?.id !== row.id) return;
         setCallStatus("Пропущенный звонок.");
         void finishCall(null, true, "missed");
@@ -672,7 +1020,8 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   }
 
   async function acceptCall() {
-    if (!activeCall || activeCall.outgoing || activeCall.accepted) return;
+    if (!activeCall || activeCall.outgoing || activeCall.accepted || !activeCall.channelReady) return;
+    const call = activeCall;
     if (!isSecureAudioContext()) {
       setCallStatus("Для звонка нужен HTTPS и доступ к микрофону.");
       return;
@@ -680,15 +1029,21 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
     const acceptButton = byId("voice-call-accept");
     acceptButton.disabled = true;
+    let acceptedOnServer = false;
     try {
-      activeCall.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      call.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      if (activeCall !== call) {
+        call.localStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       await createPeerConnection();
+      if (activeCall !== call) return;
       await transition("answer");
-      activeCall.accepted = true;
-      clearTimeout(activeCall.timeout);
-      activeCall.connectionTimer = setTimeout(() => {
-        void failCall("Не удалось установить соединение за отведённое время.");
-      }, 30_000);
+      if (activeCall !== call) return;
+      acceptedOnServer = true;
+      call.accepted = true;
+      clearTimeout(call.timeout);
+      startConnectionTimer(call);
       byId("voice-call-incoming-actions").hidden = true;
       byId("voice-call-active-actions").hidden = false;
       byId("voice-call-mute").disabled = false;
@@ -696,16 +1051,24 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       await broadcast("accepted");
     } catch (error) {
       console.error("GadLink accept call:", error);
-      setCallStatus(error.name === "NotAllowedError"
-        ? "Разрешите доступ к микрофону, чтобы принять звонок."
-        : `Не удалось принять звонок: ${error.message}`);
-      if (activeCall?.localStream) {
-        for (const track of activeCall.localStream.getTracks()) track.stop();
-        activeCall.localStream = null;
+      if (activeCall === call) {
+        if (acceptedOnServer) {
+          await failCall(`Не удалось принять звонок: ${error.message}`);
+        } else {
+          setCallStatus(error.name === "NotAllowedError"
+            ? "Разрешите доступ к микрофону, чтобы принять звонок."
+            : `Не удалось принять звонок: ${error.message}`);
+        }
       }
-      if (activeCall?.peerConnection) {
-        activeCall.peerConnection.close();
-        activeCall.peerConnection = null;
+      if (call.localStream) {
+        call.localStream.getTracks().forEach((track) => track.stop());
+        call.localStream = null;
+      }
+      if (call.peerConnection) {
+        call.peerConnection.ontrack = null;
+        call.peerConnection.onicecandidate = null;
+        call.peerConnection.close();
+        call.peerConnection = null;
       }
     } finally {
       acceptButton.disabled = false;
@@ -758,8 +1121,9 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
   async function subscribeInbox(ownerId) {
     if (inboxSubscriptionPromise) await inboxSubscriptionPromise;
-    if (inboxChannel && inboxChannelOwnerId === ownerId && inboxChannelReady) {
-      await syncPendingIncomingCalls(ownerId);
+    if (inboxChannel && inboxChannelOwnerId === ownerId) {
+      if (inboxChannelReady) await syncPendingIncomingCalls(ownerId);
+      // Keep Supabase's channel so its websocket reconnect can restore the subscription.
       return;
     }
     if (inboxChannel) await supabase.removeChannel(inboxChannel);
@@ -774,6 +1138,9 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       }, (payload) => {
         const row = payload.new || payload.old;
         if (row?.caller_id !== ownerId && row?.callee_id !== ownerId) return;
+        const previousStatus = callStatusById.get(row.id);
+        const statusChanged = previousStatus === undefined || previousStatus !== row.status;
+        callStatusById.set(row.id, row.status);
         if (payload.eventType === "INSERT" && row.callee_id === ownerId && row.status === "ringing") {
           void receiveIncomingCall(row);
         }
@@ -781,18 +1148,22 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
           if (row.status === "accepted" && activeCall.outgoing && !activeCall.accepted) {
             activeCall.accepted = true;
             clearTimeout(activeCall.timeout);
-            activeCall.connectionTimer = setTimeout(() => {
-              void failCall("Не удалось установить соединение за отведённое время.");
-            }, 30_000);
+            startConnectionTimer(activeCall);
             void createOffer();
           } else if (!["ringing", "accepted"].includes(row.status)) {
             void finishCall(
-              row.status === "missed" ? "Пропущенный звонок." : "Звонок завершён.",
+              row.status === "missed" ? "Пропущенный звонок."
+                : row.status === "rejected" ? "Собеседник отклонил звонок или занят."
+                  : row.status === "cancelled" ? "Звонок отменён собеседником."
+                    : row.status === "failed" ? "Не удалось установить соединение."
+                      : "Звонок завершён.",
               false
             );
           }
         }
-        void refreshHistory();
+        const historyChanged = payload.eventType === "INSERT" ||
+          (payload.eventType === "UPDATE" && statusChanged);
+        if (historyChanged) void refreshHistory();
       });
 
     let resolveSubscription;
@@ -843,15 +1214,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     await shutdown();
     initialisedUserId = owner.id;
     await Promise.all([subscribeInbox(owner.id), refreshHistory()]);
-    clearInterval(historyTimer);
-    historyTimer = setInterval(() => void refreshHistory(), 30_000);
   }
 
   async function shutdown() {
     historyRequest += 1;
     initialisedUserId = null;
-    clearInterval(historyTimer);
-    historyTimer = null;
+    callStatusById.clear();
     if (inboxChannel) {
       await supabase.removeChannel(inboxChannel);
       inboxChannel = null;
@@ -872,6 +1240,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     void broadcast(activeCall?.accepted ? "ended" : "cancelled")
       .finally(() => finishCall("Звонок завершён."));
   });
+  byId("voice-call-close").addEventListener("click", hideCallDialog);
   byId("voice-call-mute").addEventListener("click", toggleMute);
   byId("voice-call-volume").addEventListener("input", (event) => {
     remoteAudio.volume = Number(event.currentTarget.value);

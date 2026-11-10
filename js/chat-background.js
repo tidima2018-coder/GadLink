@@ -3,10 +3,10 @@ const DATABASE_VERSION = 1;
 const STORE_NAME = "backgrounds";
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
 const GRADIENTS = {
-  rose: "linear-gradient(145deg, #392631 0%, #211b29 52%, #171a24 100%)",
-  violet: "linear-gradient(145deg, #302448 0%, #242039 52%, #171a27 100%)",
-  ocean: "linear-gradient(145deg, #183543 0%, #1c2837 52%, #171c27 100%)",
-  forest: "linear-gradient(145deg, #203b32 0%, #222f31 52%, #191d27 100%)"
+  rose: "linear-gradient(145deg, #392631 0%, #211b29 58%, #171a24 100%)",
+  violet: "linear-gradient(145deg, #302448 0%, #242039 58%, #171a27 100%)",
+  ocean: "linear-gradient(145deg, #183543 0%, #1c2837 58%, #171c27 100%)",
+  forest: "linear-gradient(145deg, #203b32 0%, #222f31 58%, #191d27 100%)"
 };
 
 function openDatabase() {

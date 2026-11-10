@@ -294,6 +294,21 @@
       <section id="calls-section" class="page-section" hidden>
         <h2>Звонки</h2>
         <p id="calls-status" role="status"></p>
+        <details class="call-sound-settings">
+          <summary>Настройки звонков и мелодии</summary>
+          <label><input id="call-sounds-enabled" type="checkbox" checked> Звуки звонков</label>
+          <label for="call-sound-volume">Громкость мелодии <input id="call-sound-volume" type="range" min="0" max="1" step="0.05" value="0.45"></label>
+          <button id="call-sound-test" type="button">Прослушать мелодию</button>
+        </details>
+        <div class="call-history-toolbar">
+          <div class="call-history-filters" role="group" aria-label="Фильтр истории звонков">
+            <button type="button" data-call-filter="all" aria-pressed="true">Все</button>
+            <button type="button" data-call-filter="missed" aria-pressed="false">Пропущенные</button>
+            <button type="button" data-call-filter="incoming" aria-pressed="false">Входящие</button>
+            <button type="button" data-call-filter="outgoing" aria-pressed="false">Исходящие</button>
+          </div>
+          <button id="call-history-clear" class="call-history-clear" type="button">Очистить историю</button>
+        </div>
         <div id="call-history" class="call-history" aria-live="polite"></div>
       </section>
 
@@ -363,7 +378,21 @@
               <h3 id="channel-title"></h3>
               <p id="channel-description" class="channel-description"></p>
               <div id="channel-messages" aria-live="polite"></div>
-              <p id="channel-voice-empty" class="channel-voice-empty" hidden>Это голосовой канал. Подключение голосовых звонков появится позже.</p>
+              <section id="channel-voice-panel" class="voice-room" hidden aria-label="Голосовой канал">
+                <div class="voice-room__heading">
+                  <span class="voice-room__live" aria-hidden="true"></span>
+                  <div><strong>Голосовой канал</strong><small id="voice-room-count">0 из 4 участников</small></div>
+                </div>
+                <p id="voice-room-status" class="voice-room__status" role="status" aria-live="polite">Подключаем канал…</p>
+                <div id="voice-room-participants" class="voice-room__participants" role="list" aria-label="Участники голосового канала"></div>
+                <div class="voice-room__controls">
+                  <button id="voice-room-join" class="voice-room__join" type="button">Подключиться</button>
+                  <button id="voice-room-mic" type="button" aria-pressed="false" hidden>Выключить микрофон</button>
+                  <button id="voice-room-output" type="button" aria-pressed="false" hidden>Выключить звук</button>
+                  <button id="voice-room-leave" class="voice-room__leave" type="button" hidden>Отключиться</button>
+                </div>
+                <div id="voice-room-audio" class="voice-room__audio" aria-hidden="true"></div>
+              </section>
               <p id="channel-readonly-note" class="channel-readonly-note" hidden>Публиковать сообщения в канале объявлений может только владелец сервера.</p>
               <form id="channel-message-form">
                 <label for="channel-message-content">Сообщение канала</label>
@@ -409,10 +438,14 @@
 
   <div id="voice-call-dialog" class="voice-call-dialog" role="dialog" aria-modal="true" aria-labelledby="voice-call-name" hidden>
     <div class="voice-call-dialog__panel">
+      <button id="voice-call-minimize" class="voice-call-minimize" type="button" aria-label="Свернуть звонок">−</button>
+      <div id="voice-call-waves" class="voice-call-waves" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <img id="voice-call-avatar" class="voice-call-avatar" alt="" hidden>
       <div id="voice-call-avatar-placeholder" class="voice-call-avatar-placeholder" aria-hidden="true">?</div>
       <h2 id="voice-call-name">Звонок</h2>
       <p id="voice-call-status" role="status">Подготовка звонка…</p>
+      <p id="voice-call-peer-state" class="voice-call-peer-state" hidden></p>
+      <p id="voice-call-quality" class="voice-call-quality" aria-live="polite">Сеть: подключение</p>
       <time id="voice-call-timer" hidden>00:00</time>
       <audio id="voice-call-remote-audio" autoplay playsinline></audio>
       <div id="voice-call-incoming-actions" class="voice-call-actions" hidden>
@@ -421,12 +454,32 @@
       </div>
       <div id="voice-call-active-actions" class="voice-call-actions" hidden>
         <button id="voice-call-mute" type="button" aria-pressed="false">Выключить микрофон</button>
+        <button id="voice-call-hold" type="button" aria-pressed="false">Удержать</button>
+        <button id="voice-call-output-toggle" type="button" aria-pressed="false">Выключить звук</button>
         <label class="voice-call-volume" for="voice-call-volume">Звук
           <input id="voice-call-volume" type="range" min="0" max="1" step="0.05" value="1">
         </label>
+        <label class="voice-call-device" for="voice-call-input-device">Микрофон
+          <select id="voice-call-input-device"><option value="">По умолчанию</option></select>
+        </label>
+        <label class="voice-call-device" for="voice-call-output-device">Вывод звука
+          <select id="voice-call-output-device"><option value="">По умолчанию</option></select>
+        </label>
+        <button id="voice-call-profile" type="button">Профиль</button>
+        <button id="voice-call-chat" type="button">Открыть чат</button>
+        <button id="voice-call-minimize-active" type="button">Свернуть</button>
         <button id="voice-call-hangup" class="voice-call-end" type="button">Завершить звонок</button>
       </div>
+      <div id="voice-call-error-actions" class="voice-call-actions" hidden>
+        <button id="voice-call-close" type="button">Закрыть</button>
+      </div>
     </div>
+  </div>
+  <div id="voice-call-minimized" class="voice-call-minimized" hidden>
+    <span id="voice-call-minimized-name">Звонок</span>
+    <time id="voice-call-minimized-timer">00:00</time>
+    <button id="voice-call-return" type="button">Вернуться</button>
+    <button id="voice-call-minimized-end" class="voice-call-end" type="button" aria-label="Завершить звонок">×</button>
   </div>
 
   <div id="server-create-dialog" class="community-dialog" role="dialog" aria-modal="true" aria-labelledby="server-create-title" hidden inert>

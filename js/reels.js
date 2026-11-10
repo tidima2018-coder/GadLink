@@ -34,6 +34,7 @@ export function createReelsFeed({ supabase, getUser }) {
   let postsTableReady = false;
   let sectionActive = false;
   let interactionsReady = false;
+  let repostsReady = false;
   let soundEnabled = false;
   let wheelLocked = false;
   let activationId = 0;
@@ -88,6 +89,12 @@ export function createReelsFeed({ supabase, getUser }) {
     const { error } = await supabase.from("reel_likes").select("reel_path").limit(1);
     if (error) throw error;
     interactionsReady = true;
+    const repostCheck = await supabase.from("reel_reposts").select("reel_path").limit(1);
+    repostsReady = !repostCheck.error;
+    container.querySelectorAll('[data-action="repost"]').forEach((button) => {
+      button.disabled = !repostsReady;
+      if (!repostsReady) button.title = "Для репостов обновите таблицы: supabase/reels.sql";
+    });
   }
 
   function disableDbActions(error) {
@@ -101,18 +108,32 @@ export function createReelsFeed({ supabase, getUser }) {
 
   async function refreshStats(card, path) {
     if (!interactionsReady) return;
-    const [likes, comments, liked, saved] = await Promise.all([
+    const [likes, comments, liked, saved, reposts, reposted] = await Promise.all([
       supabase.from("reel_likes").select("user_id", { count: "exact", head: true }).eq("reel_path", path),
       supabase.from("reel_comments").select("id", { count: "exact", head: true }).eq("reel_path", path),
       supabase.from("reel_likes").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1),
-      supabase.from("reel_saves").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1)
+      supabase.from("reel_saves").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1),
+      repostsReady
+        ? supabase.from("reel_reposts").select("user_id", { count: "exact", head: true }).eq("reel_path", path)
+        : Promise.resolve({ count: 0, error: null }),
+      repostsReady
+        ? supabase.from("reel_reposts").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1)
+        : Promise.resolve({ data: [], error: null })
     ]);
     const failure = [likes, comments, liked, saved].find((result) => result.error);
     if (failure) throw failure.error;
     card.querySelector('[data-count="likes"]').textContent = new Intl.NumberFormat("ru-RU").format(likes.count ?? 0);
     card.querySelector('[data-count="comments"]').textContent = new Intl.NumberFormat("ru-RU").format(comments.count ?? 0);
-    card.querySelector('[data-action="like"]').classList.toggle("is-active", Boolean(liked.data?.length));
+    card.querySelector('[data-count="reposts"]').textContent = new Intl.NumberFormat("ru-RU").format(reposts.count ?? 0);
+    const likeButton = card.querySelector('[data-action="like"]');
+    likeButton.classList.toggle("is-active", Boolean(liked.data?.length));
+    likeButton.setAttribute("aria-pressed", String(Boolean(liked.data?.length)));
+    likeButton.setAttribute("aria-label", liked.data?.length ? "Убрать лайк" : "Поставить лайк");
     card.querySelector('[data-action="save"]').classList.toggle("is-active", Boolean(saved.data?.length));
+    const repostButton = card.querySelector('[data-action="repost"]');
+    repostButton.classList.toggle("is-active", Boolean(reposted.data?.length));
+    repostButton.setAttribute("aria-pressed", String(Boolean(reposted.data?.length)));
+    repostButton.setAttribute("aria-label", reposted.data?.length ? "Убрать репост" : "Сделать репост");
   }
 
   function scheduleInteractionRefresh(payload) {
@@ -158,6 +179,11 @@ export function createReelsFeed({ supabase, getUser }) {
         const row = payload.new || payload.old;
         if (row?.user_id === owner) scheduleInteractionRefresh(payload);
       })
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reel_reposts"
+      }, scheduleInteractionRefresh)
       .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
           const card = cardsByPath.get(activePath);
@@ -175,6 +201,8 @@ export function createReelsFeed({ supabase, getUser }) {
     const card = document.createElement("article");
     card.className = "reel-card";
     card.dataset.path = path;
+    card.dataset.postId = file.postId || "";
+    card.dataset.userId = file.userId || "";
     card.dataset.search = [
       path, file.title, file.description, ...(file.hashtags || [])
     ].filter(Boolean).join(" ").toLocaleLowerCase();
@@ -217,11 +245,13 @@ export function createReelsFeed({ supabase, getUser }) {
     const actions = document.createElement("div");
     actions.className = "reel-actions";
     actions.innerHTML = `
-      <button type="button" class="reel-action" data-action="like" data-db-action aria-label="Лайк"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.8 8.7c0 5-8.8 10.1-8.8 10.1S3.2 13.7 3.2 8.7A4.7 4.7 0 0 1 12 6.2a4.7 4.7 0 0 1 8.8 2.5Z"/></svg></span><small data-count="likes">—</small></button>
+      <button type="button" class="reel-action" data-action="like" data-db-action aria-label="Поставить лайк" aria-pressed="false"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.8 8.7c0 5-8.8 10.1-8.8 10.1S3.2 13.7 3.2 8.7A4.7 4.7 0 0 1 12 6.2a4.7 4.7 0 0 1 8.8 2.5Z"/></svg></span><small data-count="likes">—</small></button>
       <button type="button" class="reel-action" data-action="comments" data-db-action aria-label="Комментарии"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.5 11.4a8.4 8.4 0 0 1-8.5 8.1 9 9 0 0 1-3.7-.8L3 20l1.4-4.5a7.6 7.6 0 0 1-1-4.1A8.4 8.4 0 0 1 12 3.3a8.4 8.4 0 0 1 8.5 8.1Z"/></svg></span><small data-count="comments">—</small></button>
+      <button type="button" class="reel-action" data-action="repost" data-db-action aria-label="Сделать репост" aria-pressed="false"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m17 3 4 4-4 4"/><path d="M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4"/><path d="M21 13v2a2 2 0 0 1-2 2H3"/></svg></span><small data-count="reposts">—</small></button>
       <button type="button" class="reel-action" data-action="share" aria-label="Отправить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m21 3-7.2 18-3.7-7.1L3 10.2 21 3Z"/><path d="m10.1 13.9 4.8-4.8"/></svg></span><small>Отправить</small></button>
       <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
-      <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>`;
+      <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>
+      ${file.userId === userId() && file.postId ? '<button type="button" class="reel-action reel-action--delete" data-action="delete" aria-label="Удалить публикацию"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></span><small>Удалить</small></button>' : ""}`;
     actions.querySelectorAll("[data-db-action]").forEach((button) => {
       button.disabled = !interactionsReady;
     });
@@ -359,7 +389,7 @@ export function createReelsFeed({ supabase, getUser }) {
         event.preventDefault();
         if (Date.now() < suppressTapUntil) return;
         if (clickTimer) window.clearTimeout(clickTimer);
-        if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
+        if (interactionsReady) toggleLike(card, path);
       });
       media.addEventListener("touchend", (event) => {
         if (!(media instanceof HTMLVideoElement) || event.changedTouches.length !== 1) return;
@@ -368,7 +398,7 @@ export function createReelsFeed({ supabase, getUser }) {
         if (lastTouchAt - lastTapAt < 280) {
           if (clickTimer) window.clearTimeout(clickTimer);
           lastTapAt = 0;
-          if (interactionsReady) { animateHeart(heart); toggleLike(card, path); }
+          if (interactionsReady) toggleLike(card, path);
         } else {
           lastTapAt = lastTouchAt;
           clickTimer = window.setTimeout(() => {
@@ -454,8 +484,10 @@ export function createReelsFeed({ supabase, getUser }) {
       const action = button.dataset.action;
       if (action === "like") toggleLike(card, path);
       if (action === "comments") openComments(path);
+      if (action === "repost") toggleRepost(card, path);
       if (action === "save") toggleSave(card, path);
       if (action === "share") share(path);
+      if (action === "delete") deletePost(card);
       if (action === "sound" && currentVideo()) toggleSound(currentVideo());
     });
   }
@@ -530,10 +562,79 @@ export function createReelsFeed({ supabase, getUser }) {
         ? await supabase.from("reel_likes").delete().eq("reel_path", path).eq("user_id", userId())
         : await supabase.from("reel_likes").insert({ reel_path: path, user_id: userId() });
       if (result.error) throw result.error;
-      if (addingLike) animateLikeButton(button);
+      if (addingLike) {
+        animateHeart(card.querySelector(".reel-heart-burst"));
+        animateLikeButton(button);
+      }
       await refreshStats(card, path);
     } catch (error) { disableDbActions(error); }
     finally { button.disabled = !interactionsReady; }
+  }
+
+  async function toggleRepost(card, path) {
+    if (!repostsReady) return;
+    const button = card.querySelector('[data-action="repost"]');
+    button.disabled = true;
+    try {
+      const { data, error } = await supabase.from("reel_reposts")
+        .select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1);
+      if (error) throw error;
+      const result = data?.length
+        ? await supabase.from("reel_reposts").delete().eq("reel_path", path).eq("user_id", userId())
+        : await supabase.from("reel_reposts").insert({ reel_path: path, user_id: userId() });
+      if (result.error) throw result.error;
+      if (!data?.length) {
+        button.classList.remove("is-reposting");
+        void button.offsetWidth;
+        button.classList.add("is-reposting");
+        window.setTimeout(() => button.classList.remove("is-reposting"), 700);
+      }
+      await refreshStats(card, path);
+    } catch (error) {
+      repostsReady = false;
+      button.title = `Не удалось выполнить репост: ${error.message}`;
+      setStatus(`Не удалось выполнить репост. Проверьте supabase/reels.sql: ${error.message}`, true);
+    } finally {
+      button.disabled = !repostsReady;
+    }
+  }
+
+  async function deletePost(card) {
+    const postId = card.dataset.postId;
+    if (!postId || card.dataset.userId !== userId()) return;
+    if (!window.confirm("Удалить эту публикацию и все её фото или видео? Это действие нельзя отменить.")) return;
+    const button = card.querySelector('[data-action="delete"]');
+    if (button) button.disabled = true;
+    try {
+      const { data: paths, error } = await supabase.rpc("gadlink_delete_reel_post", { target_post_id: postId });
+      if (error) throw error;
+      const mediaPaths = Array.isArray(paths) ? paths : [];
+      let storageError = null;
+      if (mediaPaths.length) {
+        try {
+          const result = await supabase.storage.from(REELS_BUCKET).remove(mediaPaths);
+          storageError = result.error;
+        } catch (error) {
+          storageError = error;
+        }
+      }
+      observer?.unobserve(card);
+      card.querySelectorAll("video").forEach((video) => { video.pause(); video.removeAttribute("src"); video.load(); });
+      mediaPaths.forEach((mediaPath) => {
+        cardsByPath.delete(mediaPath);
+        mediaUrls.delete(mediaPath);
+      });
+      card.remove();
+      if (activeVideo && !activeVideo.isConnected) activeVideo = null;
+      if (activePath && mediaPaths.includes(activePath)) activePath = null;
+      setStatus(storageError
+        ? `Публикация удалена, но часть медиа не удалена из хранилища: ${storageError.message}`
+        : "Публикация удалена.", Boolean(storageError));
+    } catch (error) {
+      console.error("GadLink Reels delete post:", error);
+      setStatus(`Не удалось удалить публикацию: ${error.message}`, true);
+      if (button) button.disabled = false;
+    }
   }
 
   async function toggleSave(card, path) {
@@ -762,6 +863,7 @@ export function createReelsFeed({ supabase, getUser }) {
 
       const uploadedPosts = (posts || []).map((post) => ({
         path: post.media_paths[0],
+        postId: post.id,
         title: post.title,
         description: post.description,
         hashtags: post.hashtags || [],
@@ -807,7 +909,9 @@ export function createReelsFeed({ supabase, getUser }) {
       try {
         await checkInteractionTables();
         subscribeToInteractions();
-        container.querySelectorAll("[data-db-action]").forEach((button) => { button.disabled = false; });
+        container.querySelectorAll("[data-db-action]").forEach((button) => {
+          button.disabled = button.dataset.action === "repost" && !repostsReady;
+        });
         const activeCard = activeVideo?.closest(".reel-card");
         if (activeCard) await refreshStats(activeCard, activeCard.dataset.path);
         if (!postsError && files.length) setStatus("");
@@ -1013,9 +1117,11 @@ export function createReelsFeed({ supabase, getUser }) {
 
       const post = {
         path: uploadedPaths[0],
+        postId,
         title,
         description,
         hashtags,
+        userId: userId(),
         media: uploadedPaths.map((path, index) => ({
           path,
           type: mediaTypes[index],

@@ -3,6 +3,7 @@ import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js";
 import { createVoiceCallController } from "./js/voice-calls.js";
+import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
 import { createChatBackgroundSettings } from "./js/chat-background.js";
 import {
@@ -57,6 +58,11 @@ const voiceCallsController = createVoiceCallController({
   supabase,
   getUser: () => user,
   getPublicProfileNames
+});
+const voiceRoomsController = createVoiceRooms({
+  supabase,
+  getUser: () => user,
+  getProfile: () => ({ username: currentUsername, avatarUrl: currentAvatarUrl })
 });
 const pushController = createPushNotifications({
   supabase,
@@ -1059,6 +1065,7 @@ async function loadServers() {
 }
 
 async function openServer(server) {
+  await voiceRoomsController.close();
   currentServer = server;
   currentChannel = null;
   if (channelSubscription) await supabase.removeChannel(channelSubscription);
@@ -1083,7 +1090,7 @@ async function openServer(server) {
   }
   byId("server-invite").hidden = server.created_by !== user?.id || !server.invite_code;
   byId("channel-view").hidden = true;
-  byId("channel-voice-empty").hidden = true;
+  byId("channel-voice-panel").hidden = true;
   byId("channel-readonly-note").hidden = true;
   byId("channel-message-form").hidden = false;
   byId("channel-form").dataset.serverId = server.id;
@@ -1159,13 +1166,19 @@ async function openChannel(channel) {
   channelSubscription = null;
   const isVoice = channel.channel_type === "voice";
   const isReadOnlyAnnouncement = channel.channel_type === "announcement" && currentServer?.created_by !== user?.id;
-  byId("channel-voice-empty").hidden = !isVoice;
+  byId("channel-voice-panel").hidden = !isVoice;
   byId("channel-readonly-note").hidden = isVoice || !isReadOnlyAnnouncement;
   byId("channel-message-form").hidden = isVoice || isReadOnlyAnnouncement;
   if (isVoice) {
     setStatus("community-status", "");
+    void voiceRoomsController.watch(channel).catch((error) => {
+      console.error("GadLink voice room watch:", error);
+      byId("voice-room-status").textContent = `Не удалось открыть голосовой канал: ${error.message}`;
+      byId("voice-room-status").classList.add("is-error");
+    });
     return;
   }
+  await voiceRoomsController.close();
   const { data, error } = await supabase
     .from("channel_messages")
     .select("id,user_id,content,created_at")
@@ -2308,6 +2321,9 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
+    void voiceRoomsController.shutdown().catch((error) => {
+      console.error("GadLink voice room auth cleanup:", error);
+    });
     void voiceCallsController.shutdown().catch((error) => {
       console.error("GadLink voice auth cleanup:", error);
     });
