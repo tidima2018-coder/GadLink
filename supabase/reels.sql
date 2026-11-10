@@ -1,5 +1,5 @@
 -- Reels engagement tables and policies. Run in Supabase SQL Editor.
--- This migration does not change the Storage bucket's visibility or upload rules.
+-- Ensure the private Storage bucket "reels" exists before publishing media.
 
 create table if not exists public.reel_likes (
   reel_path text not null check (length(reel_path) between 1 and 1024),
@@ -24,18 +24,58 @@ create table if not exists public.reel_comments (
 );
 create index if not exists reel_comments_path_created_idx on public.reel_comments (reel_path, created_at);
 
+create table if not exists public.reel_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null check (length(trim(title)) between 1 and 120),
+  description text not null default '' check (length(description) <= 1000),
+  hashtags text[] not null default '{}'
+    check (cardinality(hashtags) <= 10),
+  media_paths text[] not null
+    check (cardinality(media_paths) between 1 and 10),
+  media_types text[] not null
+    check (cardinality(media_types) between 1 and 10)
+    check (media_types <@ array['image', 'video']::text[]),
+  created_at timestamptz not null default now(),
+  check (cardinality(media_paths) = cardinality(media_types))
+);
+create index if not exists reel_posts_created_idx on public.reel_posts (created_at desc);
+
 alter table public.reel_likes enable row level security;
 alter table public.reel_saves enable row level security;
 alter table public.reel_comments enable row level security;
+alter table public.reel_posts enable row level security;
 
 grant select, insert, delete on public.reel_likes to authenticated;
 grant select, insert, delete on public.reel_saves to authenticated;
 grant select, insert, delete on public.reel_comments to authenticated;
+grant select, insert on public.reel_posts to authenticated;
 
 drop policy if exists "gadlink reels list files" on storage.objects;
 create policy "gadlink reels list files" on storage.objects
   for select to authenticated using (bucket_id = 'reels');
+drop policy if exists "users upload own reel media" on storage.objects;
+create policy "users upload own reel media" on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'reels' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+drop policy if exists "users remove own reel media" on storage.objects;
+create policy "users remove own reel media" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'reels' and (storage.foldername(name))[1] = auth.uid()::text
+  );
 
+drop policy if exists "authenticated users read reel posts" on public.reel_posts;
+create policy "authenticated users read reel posts" on public.reel_posts
+  for select to authenticated using (true);
+drop policy if exists "users publish own reels" on public.reel_posts;
+create policy "users publish own reels" on public.reel_posts
+  for insert to authenticated with check (
+    user_id = auth.uid() and not exists (
+      select 1 from unnest(media_paths) as uploaded_path(path)
+      where split_part(uploaded_path.path, '/', 1) <> auth.uid()::text
+    )
+  );
 drop policy if exists "authenticated users read reel likes" on public.reel_likes;
 create policy "authenticated users read reel likes" on public.reel_likes
   for select to authenticated using (true);
