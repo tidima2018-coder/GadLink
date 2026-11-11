@@ -53,6 +53,51 @@ let conversationOverviewRequestVersion = 0;
 let conversationOverviewRefreshTimer = null;
 
 const byId = (id) => document.getElementById(id);
+const secretVideoDialog = byId("secret-video-dialog");
+const secretVideoPanel = secretVideoDialog.querySelector(".secret-video-dialog__panel");
+const secretVideoOpen = byId("secret-video-open");
+let secretVideoFullscreenActive = false;
+secretVideoOpen.addEventListener("click", () => {
+  secretVideoDialog.showModal();
+  secretVideoDialog.classList.add("is-fullscreen-fallback");
+  if (typeof secretVideoPanel.requestFullscreen !== "function") return;
+  try {
+    secretVideoPanel.requestFullscreen().then(() => {
+      if (document.fullscreenElement !== secretVideoPanel) {
+        if (secretVideoDialog.open) secretVideoDialog.close();
+        return;
+      }
+      secretVideoFullscreenActive = true;
+      secretVideoDialog.classList.remove("is-fullscreen-fallback");
+      secretVideoDialog.classList.add("is-fullscreen");
+    }).catch((error) => {
+      console.warn("GadLink secret video fullscreen is unavailable:", error);
+    });
+  } catch (error) {
+    console.warn("GadLink secret video fullscreen is unavailable:", error);
+  }
+});
+byId("secret-video-close").addEventListener("click", () => secretVideoDialog.close());
+secretVideoDialog.addEventListener("click", (event) => {
+  if (event.target === secretVideoDialog) secretVideoDialog.close();
+});
+document.addEventListener("fullscreenchange", () => {
+  if (document.fullscreenElement === secretVideoPanel) return;
+  const wasSecretVideoFullscreen = secretVideoFullscreenActive;
+  secretVideoFullscreenActive = false;
+  secretVideoDialog.classList.remove("is-fullscreen", "is-fullscreen-fallback");
+  if (wasSecretVideoFullscreen && secretVideoDialog.open) secretVideoDialog.close();
+});
+secretVideoDialog.addEventListener("close", () => {
+  secretVideoFullscreenActive = false;
+  if (document.fullscreenElement === secretVideoPanel) {
+    document.exitFullscreen().catch((error) => {
+      console.warn("GadLink could not exit secret video fullscreen:", error);
+    });
+  }
+  secretVideoDialog.classList.remove("is-fullscreen", "is-fullscreen-fallback");
+  secretVideoOpen.focus();
+});
 const voiceCallsController = createVoiceCallController({
   supabase,
   getUser: () => user,

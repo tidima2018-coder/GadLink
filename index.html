@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -69,9 +69,24 @@
         <button id="pwa-install" class="pwa-install-button" type="button" hidden>Установить GadLink</button>
         <p id="pwa-install-status" class="pwa-install-status" role="status"></p>
         <p id="pwa-install-guide" class="pwa-install-guide" role="note" hidden></p>
+        <button id="secret-video-open" class="secret-video-open" type="button">Секретик</button>
       </section>
     </aside>
   </div>
+
+  <dialog id="secret-video-dialog" class="secret-video-dialog" aria-labelledby="secret-video-title">
+    <div class="secret-video-dialog__panel">
+      <div class="secret-video-dialog__heading">
+        <h2 id="secret-video-title">Секретик</h2>
+        <button id="secret-video-close" type="button" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+        </button>
+      </div>
+      <div class="secret-video-frame">
+        <video id="secret-video" controls playsinline preload="metadata" aria-label="Видео-поздравление"></video>
+      </div>
+    </div>
+  </dialog>
 
   <main>
     <section id="auth-section">
@@ -652,6 +667,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=2"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>

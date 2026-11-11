@@ -97,6 +97,87 @@ body {
 }
 .profile-menu__install > div > p { margin-bottom: 10px; }
 .profile-menu__install > .pwa-install-button { min-height: 44px; }
+.profile-menu__install > .secret-video-open {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 10px;
+  border: 1px solid rgba(201,164,235,.28);
+  border-radius: 13px;
+  color: #f0dfff;
+  background: linear-gradient(120deg, rgba(125,83,154,.38), rgba(69,53,91,.62));
+  box-shadow: inset 0 1px rgba(255,255,255,.07);
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.profile-menu__install > .secret-video-open:hover {
+  border-color: rgba(215,183,244,.58);
+  background: linear-gradient(120deg, rgba(143,91,177,.52), rgba(79,60,106,.78));
+  box-shadow: 0 8px 20px rgba(79,50,106,.25), inset 0 1px rgba(255,255,255,.1);
+  transform: translateY(-1px);
+}
+.secret-video-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(90dvh, 760px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(201,164,235,.24);
+  border-radius: 22px;
+  color: var(--text);
+  background: linear-gradient(155deg, #27232d, #171619 78%);
+  box-shadow: 0 28px 90px rgba(0,0,0,.62), inset 0 1px rgba(255,255,255,.05);
+}
+.secret-video-dialog::backdrop {
+  background: rgba(8,7,10,.78);
+  backdrop-filter: blur(10px);
+}
+.secret-video-dialog__panel { padding: clamp(14px, 3vw, 22px); }
+.secret-video-dialog__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.secret-video-dialog__heading h2 { margin: 0; font-size: 20px; }
+.secret-video-dialog__heading button { display: grid; width: 38px; min-width: 38px; min-height: 38px; place-items: center; padding: 0; border-radius: 12px; }
+.secret-video-dialog__heading svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.secret-video-frame { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: #08080a; }
+.secret-video-frame video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.secret-video-dialog__panel:fullscreen,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-dialog__panel {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #08080a;
+}
+.secret-video-dialog__panel:fullscreen,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-dialog__panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  padding: 0;
+}
+.secret-video-dialog__panel:fullscreen .secret-video-dialog__heading,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-dialog__heading { display: none; }
+.secret-video-dialog__panel:fullscreen .secret-video-frame,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+.secret-video-dialog__panel:fullscreen .secret-video-frame video,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-frame video {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  object-fit: cover;
+}
 body::before {
   position: fixed;
   z-index: -1;
@@ -1960,6 +2041,8 @@ main {
   #menu-toggle span,
   .profile-menu,
   .profile-menu__panel,
+  .profile-menu__install > .secret-video-open,
+  .secret-video-dialog,
   .friend-add-dialog,
   .friend-add-dialog__panel,
   .add-contact-button,
