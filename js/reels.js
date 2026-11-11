@@ -1,7 +1,8 @@
 import { getPublicProfileNames } from "./friends.js";
 
 const REELS_BUCKET = "reels";
-const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|m4v|ogg)$/i;
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)$/i;
+const MEDIA_EXTENSIONS = /\.(mp4|mov|webm|m4v|ogg|jpe?g|png|webp|gif|avif)$/i;
 const MAX_MEDIA_FILES = 10;
 const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
@@ -22,6 +23,8 @@ export function createReelsFeed({ supabase, getUser }) {
   const publishFileList = document.getElementById("reel-publish-file-list");
   const publishStatus = document.getElementById("reel-publish-status");
   const cardsByPath = new Map();
+  const statsRequestIds = new Map();
+  const pendingInteractionPaths = new Set();
   const mediaByCard = new WeakMap();
   const mediaUrls = new Map();
   const publishPreviewUrls = [];
@@ -29,6 +32,7 @@ export function createReelsFeed({ supabase, getUser }) {
   let activeVideo = null;
   let activePath = null;
   let commentsPath = null;
+  let commentsRequestId = 0;
   let loading = false;
   let loaded = false;
   let postsTableReady = false;
@@ -37,7 +41,13 @@ export function createReelsFeed({ supabase, getUser }) {
   let repostsReady = false;
   let soundEnabled = false;
   let wheelLocked = false;
+  let wheelDelta = 0;
+  let wheelReleaseTimer = null;
+  let scrollActivationTimer = null;
   let activationId = 0;
+  let postsChangeVersion = 0;
+  let postsChannel = null;
+  let postsOwnerId = null;
   let interactionsChannel = null;
   let interactionsOwnerId = null;
   let interactionRefreshTimer = null;
@@ -128,19 +138,27 @@ export function createReelsFeed({ supabase, getUser }) {
   }
 
   async function listBucket(prefix = "") {
-    const { data, error } = await supabase.storage
-      .from(REELS_BUCKET)
-      .list(prefix, { limit: 100, offset: 0, sortBy: { column: "name", order: "asc" } });
-    if (error) throw error;
-
     const files = [];
-    for (const entry of data || []) {
-      const path = [prefix.replace(/\/$/, ""), entry.name].filter(Boolean).join("/");
-      if (entry.id == null && !entry.metadata) {
-        files.push(...await listBucket(path));
-      } else if (VIDEO_EXTENSIONS.test(entry.name) || entry.metadata?.mimetype?.startsWith("video/")) {
-        files.push({ path, name: entry.name });
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase.storage.from(REELS_BUCKET)
+        .list(prefix, { limit: 100, offset, sortBy: { column: "name", order: "asc" } });
+      if (error) throw error;
+      const entries = data || [];
+      for (const entry of entries) {
+        const path = [prefix.replace(/\/$/, ""), entry.name].filter(Boolean).join("/");
+        if (entry.id == null && !entry.metadata) {
+          files.push(...await listBucket(path));
+        } else if (MEDIA_EXTENSIONS.test(entry.name) || /^(video|image)\//.test(entry.metadata?.mimetype || "")) {
+          files.push({
+            path,
+            name: entry.name,
+            type: IMAGE_EXTENSIONS.test(entry.name) || entry.metadata?.mimetype?.startsWith("image/") ? "image" : "video"
+          });
+        }
       }
+      if (entries.length < 100) break;
+      offset += entries.length;
     }
     return files;
   }
@@ -184,6 +202,8 @@ export function createReelsFeed({ supabase, getUser }) {
 
   async function refreshStats(card, path) {
     if (!interactionsReady) return;
+    const requestId = (statsRequestIds.get(path) || 0) + 1;
+    statsRequestIds.set(path, requestId);
     const [likes, comments, liked, saved, reposts, reposted] = await Promise.all([
       supabase.from("reel_likes").select("user_id", { count: "exact", head: true }).eq("reel_path", path),
       supabase.from("reel_comments").select("id", { count: "exact", head: true }).eq("reel_path", path),
@@ -196,6 +216,7 @@ export function createReelsFeed({ supabase, getUser }) {
         ? supabase.from("reel_reposts").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1)
         : Promise.resolve({ data: [], error: null })
     ]);
+    if (statsRequestIds.get(path) !== requestId || !card.isConnected) return;
     const failure = [likes, comments, liked, saved].find((result) => result.error);
     if (failure) throw failure.error;
     card.querySelector('[data-count="likes"]').textContent = new Intl.NumberFormat("ru-RU").format(likes.count ?? 0);
@@ -205,7 +226,10 @@ export function createReelsFeed({ supabase, getUser }) {
     likeButton.classList.toggle("is-active", Boolean(liked.data?.length));
     likeButton.setAttribute("aria-pressed", String(Boolean(liked.data?.length)));
     likeButton.setAttribute("aria-label", liked.data?.length ? "Убрать лайк" : "Поставить лайк");
-    card.querySelector('[data-action="save"]').classList.toggle("is-active", Boolean(saved.data?.length));
+    const saveButton = card.querySelector('[data-action="save"]');
+    saveButton.classList.toggle("is-active", Boolean(saved.data?.length));
+    saveButton.setAttribute("aria-pressed", String(Boolean(saved.data?.length)));
+    saveButton.setAttribute("aria-label", saved.data?.length ? "Убрать из сохранённых" : "Сохранить");
     const repostButton = card.querySelector('[data-action="repost"]');
     repostButton.classList.toggle("is-active", Boolean(reposted.data?.length));
     repostButton.setAttribute("aria-pressed", String(Boolean(reposted.data?.length)));
@@ -213,20 +237,182 @@ export function createReelsFeed({ supabase, getUser }) {
   }
 
   function scheduleInteractionRefresh(payload) {
-    const row = payload.new || payload.old;
-    const path = row?.reel_path;
-    if (!path || (path !== activePath && path !== commentsPath)) return;
-    clearTimeout(interactionRefreshTimer);
+    const changedPath = payload.new?.reel_path || payload.old?.reel_path;
+    const paths = changedPath
+      ? [changedPath]
+      : payload.table === "reel_comments" && payload.eventType === "DELETE"
+        ? [activePath, commentsPath].filter(Boolean)
+        : [];
+    const relevantPaths = [...new Set(paths)]
+      .filter((path) => path === activePath || path === commentsPath);
+    if (!relevantPaths.length) return;
+    relevantPaths.forEach((path) => pendingInteractionPaths.add(path));
+    if (interactionRefreshTimer) return;
     interactionRefreshTimer = window.setTimeout(async () => {
-      try {
-        const card = cardsByPath.get(path);
-        if (card && interactionsReady) await refreshStats(card, path);
-        if (commentsPath === path && !commentsPanel.hidden) await openComments(path);
-      } catch (error) {
-        console.error("GadLink Reels Realtime:", error);
-        setStatus(`Не удалось обновить Reels: ${error.message}`, true);
+      interactionRefreshTimer = null;
+      const pathsToRefresh = [...pendingInteractionPaths];
+      pendingInteractionPaths.clear();
+      for (const path of pathsToRefresh) {
+        try {
+          const card = cardsByPath.get(path);
+          if (card && interactionsReady) await refreshStats(card, path);
+          if (commentsPath === path && !commentsPanel.hidden) await openComments(path);
+        } catch (error) {
+          console.error("GadLink Reels Realtime:", error);
+          setStatus(`Не удалось обновить Reels: ${error.message}`, true);
+        }
       }
     }, 120);
+  }
+
+  function fileFromPost(post) {
+    if (!post?.id || !Array.isArray(post.media_paths) || !post.media_paths.length) return null;
+    return {
+      id: post.id,
+      path: post.media_paths[0],
+      postId: post.id,
+      title: post.title,
+      description: post.description,
+      hashtags: post.hashtags || [],
+      createdAt: post.created_at,
+      userId: post.user_id,
+      media: post.media_paths.map((path, index) => ({
+        path,
+        type: post.media_types?.[index] === "image" ? "image" : "video",
+        name: path.split("/").pop()
+      }))
+    };
+  }
+
+  function findPostCard(postId) {
+    return [...container.querySelectorAll(".reel-card")]
+      .find((card) => card.dataset.postId === postId) || null;
+  }
+
+  function removePostCard(card) {
+    if (!card) return;
+    const media = mediaByCard.get(card);
+    const paths = media?.items.map((item) => item.path) || [card.dataset.path];
+    if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
+      activationId += 1;
+      pauseAll();
+      activePath = null;
+    }
+    if (paths.includes(commentsPath)) {
+      commentsPanel.hidden = true;
+      commentsPath = null;
+      commentsRequestId += 1;
+    }
+    observer?.unobserve(card);
+    card.querySelectorAll("video").forEach((video) => {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    });
+    for (const path of paths) {
+      cardsByPath.delete(path);
+      mediaUrls.delete(path);
+    }
+    card.remove();
+    setStatus(container.querySelector(".reel-card:not([hidden])")
+      ? ""
+      : "Публикаций больше нет.");
+  }
+
+  function insertPost(file) {
+    if (!file || findPostCard(file.postId)) return;
+    const card = makeCard(file);
+    const query = searchInput.value.trim().toLocaleLowerCase();
+    card.hidden = Boolean(query) && !card.dataset.search.includes(query);
+    card.dataset.createdAt = file.createdAt || "";
+
+    const anchor = cardsByPath.get(activePath);
+    const anchorTop = anchor?.getBoundingClientRect().top;
+    const wasAtTop = container.scrollTop <= 2;
+    const createdAt = Date.parse(file.createdAt) || 0;
+    const beforeCard = [...container.querySelectorAll(".reel-card")]
+      .find((item) => (Date.parse(item.dataset.createdAt) || 0) < createdAt);
+    container.insertBefore(card, beforeCard || null);
+    cardsByPath.set(file.path, card);
+    for (const item of file.media) cardsByPath.set(item.path, card);
+    if (wasAtTop && !card.hidden) {
+      container.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (anchor && anchor !== card && Number.isFinite(anchorTop)) {
+      container.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+    }
+    if (sectionActive) observer?.observe(card);
+    if (interactionsReady) void refreshStats(card, file.path).catch(disableDbActions);
+    if (!card.hidden) setStatus("");
+  }
+
+  function handlePostChange(payload) {
+    postsChangeVersion += 1;
+    const row = payload.eventType === "DELETE" ? payload.old : payload.new;
+    if (payload.eventType === "DELETE") {
+      removePostCard(findPostCard(row?.id));
+      return;
+    }
+    const file = fileFromPost(payload.new);
+    if (!file) return;
+    const existing = findPostCard(file.postId);
+    if (existing) {
+      if (payload.eventType === "UPDATE") {
+        existing.dataset.search = [
+          file.path, file.title, file.description, ...(file.hashtags || [])
+        ].filter(Boolean).join(" ").toLocaleLowerCase();
+        existing.querySelector(".reel-caption__title").textContent = file.title || "";
+        existing.querySelector(".reel-caption__description").textContent = file.description || "";
+        existing.querySelector(".reel-caption__hashtags").textContent =
+          (file.hashtags || []).map((tag) => `#${tag}`).join(" ");
+        existing.dataset.createdAt = file.createdAt || "";
+        if (searchInput.value.trim()) filterCards();
+      }
+      return;
+    }
+    insertPost(file);
+  }
+
+  async function syncPosts() {
+    const owner = userId();
+    if (!sectionActive || !postsTableReady || !owner) return;
+    const changeVersion = postsChangeVersion;
+    const { data, error } = await supabase.from("reel_posts")
+      .select("id,user_id,title,description,hashtags,media_paths,media_types,created_at")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("GadLink Reels post sync:", error);
+      setStatus(`Не удалось синхронизировать публикации: ${error.message}`, true);
+      return;
+    }
+    if (!sectionActive || userId() !== owner || postsChangeVersion !== changeVersion) return;
+    const serverPosts = new Map((data || []).map((post) => [post.id, post]));
+    for (const card of container.querySelectorAll(".reel-card[data-post-id]")) {
+      if (card.dataset.postId && !serverPosts.has(card.dataset.postId)) removePostCard(card);
+    }
+    for (const post of serverPosts.values()) handlePostChange({ eventType: "INSERT", new: post });
+    observeCards();
+  }
+
+  function subscribeToPosts() {
+    const owner = userId();
+    if (!sectionActive || !postsTableReady || !owner) return;
+    if (postsChannel && postsOwnerId === owner) return;
+    if (postsChannel) void supabase.removeChannel(postsChannel);
+    postsOwnerId = owner;
+    postsChannel = supabase
+      .channel(`reel-posts-${owner}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "reel_posts"
+      }, handlePostChange)
+      .subscribe((state, error) => {
+        if (state === "SUBSCRIBED") void syncPosts();
+        else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT") {
+          console.error("GadLink Reels posts Realtime:", error || state);
+          setStatus("Не удалось подключить синхронизацию публикаций Reels.", true);
+        }
+      });
   }
 
   function subscribeToInteractions() {
@@ -279,6 +465,7 @@ export function createReelsFeed({ supabase, getUser }) {
     card.dataset.path = path;
     card.dataset.postId = file.postId || "";
     card.dataset.userId = file.userId || "";
+    card.dataset.createdAt = file.createdAt || "";
     card.dataset.search = [
       path, file.title, file.description, ...(file.hashtags || [])
     ].filter(Boolean).join(" ").toLocaleLowerCase();
@@ -368,7 +555,7 @@ export function createReelsFeed({ supabase, getUser }) {
       <button type="button" class="reel-action" data-action="comments" data-db-action aria-label="Комментарии"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.5 11.4a8.4 8.4 0 0 1-8.5 8.1 9 9 0 0 1-3.7-.8L3 20l1.4-4.5a7.6 7.6 0 0 1-1-4.1A8.4 8.4 0 0 1 12 3.3a8.4 8.4 0 0 1 8.5 8.1Z"/></svg></span><small data-count="comments">—</small></button>
       <button type="button" class="reel-action" data-action="repost" data-db-action aria-label="Сделать репост" aria-pressed="false"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m17 3 4 4-4 4"/><path d="M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4"/><path d="M21 13v2a2 2 0 0 1-2 2H3"/></svg></span><small data-count="reposts">—</small></button>
       <button type="button" class="reel-action" data-action="share" aria-label="Отправить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m21 3-7.2 18-3.7-7.1L3 10.2 21 3Z"/><path d="m10.1 13.9 4.8-4.8"/></svg></span><small>Отправить</small></button>
-      <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
+      <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить" aria-pressed="false"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
 
       <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>`;
 
@@ -456,6 +643,7 @@ export function createReelsFeed({ supabase, getUser }) {
     let progressFrame = 0;
     let isSeeking = false;
     let pointerStart = null;
+    let mediaTouchStart = null;
     let suppressTapUntil = 0;
     const currentMedia = () => mediaState.elements[mediaState.index];
     const currentVideo = () => currentMedia() instanceof HTMLVideoElement ? currentMedia() : null;
@@ -511,8 +699,22 @@ export function createReelsFeed({ supabase, getUser }) {
         if (clickTimer) window.clearTimeout(clickTimer);
         if (interactionsReady) toggleLike(card, path);
       });
+      media.addEventListener("touchstart", (event) => {
+        if (event.changedTouches.length === 1) {
+          const touch = event.changedTouches[0];
+          mediaTouchStart = { x: touch.clientX, y: touch.clientY };
+        }
+      }, { passive: true });
       media.addEventListener("touchend", (event) => {
         if (!(media instanceof HTMLVideoElement) || event.changedTouches.length !== 1) return;
+        const touch = event.changedTouches[0];
+        const moved = mediaTouchStart && Math.hypot(touch.clientX - mediaTouchStart.x, touch.clientY - mediaTouchStart.y) > 12;
+        mediaTouchStart = null;
+        if (moved) {
+          suppressTapUntil = Date.now() + 450;
+          lastTouchAt = Date.now();
+          return;
+        }
         lastTouchAt = Date.now();
         if (lastTouchAt < suppressTapUntil) return;
         if (lastTouchAt - lastTapAt < 280) {
@@ -527,6 +729,7 @@ export function createReelsFeed({ supabase, getUser }) {
           }, 290);
         }
       }, { passive: true });
+      media.addEventListener("touchcancel", () => { mediaTouchStart = null; }, { passive: true });
 
       if (!(media instanceof HTMLVideoElement)) return;
       media.addEventListener("play", () => {
@@ -549,11 +752,29 @@ export function createReelsFeed({ supabase, getUser }) {
       media.addEventListener("waiting", () => card.classList.add("is-buffering"));
       media.addEventListener("canplay", () => {
         card.classList.remove("is-buffering");
+        delete media.dataset.reelUrlRetry;
         fitStage(card, media);
       });
       media.addEventListener("error", () => {
         card.classList.add("has-error");
-        setStatus("Не удалось загрузить одну из публикаций.", true);
+        const mediaIndex = mediaState.elements.indexOf(media);
+        const item = mediaState.items[mediaIndex];
+        if (item && !media.dataset.reelUrlRetry) {
+          media.dataset.reelUrlRetry = "pending";
+          mediaUrls.delete(item.path);
+          void getMediaUrl(item.path).then((freshUrl) => {
+            if (!media.isConnected) return;
+            media.dataset.reelUrlRetry = "done";
+            media.src = freshUrl;
+            media.load();
+            if (media === currentVideo() && activeVideo === media) playVideo(media, card);
+          }).catch((error) => {
+            media.dataset.reelUrlRetry = "done";
+            setStatus(`Видео временно недоступно: ${error.message}`, true);
+          });
+          return;
+        }
+        setStatus("Не удалось воспроизвести видео. Попробуйте позже или удалите публикацию, если это ваше видео.", true);
       });
     });
 
@@ -570,6 +791,15 @@ export function createReelsFeed({ supabase, getUser }) {
       }
     });
     progress.addEventListener("pointerdown", () => { isSeeking = true; });
+    progress.addEventListener("pointermove", (event) => {
+      if (!isSeeking || !(event.buttons || event.pointerType === "touch")) return;
+      const video = currentVideo();
+      if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+      const bounds = progress.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+      video.currentTime = ratio * video.duration;
+      progress.value = String(ratio * Number(progress.max));
+    });
     progress.addEventListener("pointerup", () => { isSeeking = false; });
     progress.addEventListener("pointercancel", () => { isSeeking = false; });
     progress.addEventListener("keydown", () => { isSeeking = true; });
@@ -673,21 +903,37 @@ export function createReelsFeed({ supabase, getUser }) {
   async function toggleLike(card, path) {
     if (!interactionsReady) return;
     const button = card.querySelector('[data-action="like"]');
+    const wasLiked = button.getAttribute("aria-pressed") === "true";
+    const count = card.querySelector('[data-count="likes"]');
+    const previousCount = Number.parseInt(count.textContent.replace(/[^\d]/g, ""), 10) || 0;
+    const setLikeState = (liked, likeCount) => {
+      button.classList.toggle("is-active", liked);
+      button.setAttribute("aria-pressed", String(liked));
+      button.setAttribute("aria-label", liked ? "Убрать лайк" : "Поставить лайк");
+      count.textContent = new Intl.NumberFormat("ru-RU").format(likeCount);
+    };
     button.disabled = true;
+    setLikeState(!wasLiked, Math.max(0, previousCount + (wasLiked ? -1 : 1)));
+    let likeSaved = false;
     try {
       const { data, error } = await supabase.from("reel_likes").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1);
       if (error) throw error;
       const addingLike = !data?.length;
+      setLikeState(addingLike, Math.max(0, previousCount + (addingLike ? 1 : -1)));
       const result = !addingLike
         ? await supabase.from("reel_likes").delete().eq("reel_path", path).eq("user_id", userId())
         : await supabase.from("reel_likes").insert({ reel_path: path, user_id: userId() });
       if (result.error) throw result.error;
+      likeSaved = true;
       if (addingLike) {
         animateHeart(card.querySelector(".reel-heart-burst"));
         animateLikeButton(button);
       }
       await refreshStats(card, path);
-    } catch (error) { disableDbActions(error); }
+    } catch (error) {
+      if (!likeSaved) setLikeState(wasLiked, previousCount);
+      disableDbActions(error);
+    }
     finally { button.disabled = !interactionsReady; }
   }
 
@@ -729,9 +975,31 @@ export function createReelsFeed({ supabase, getUser }) {
     const deleteButton = button || card.querySelector('[data-reel-menu-action="delete"]');
     if (deleteButton) deleteButton.disabled = true;
     try {
-      const { data: paths, error } = await supabase.rpc("gadlink_delete_reel_post", { target_post_id: postId });
+      const cardPaths = (mediaByCard.get(card)?.items || [])
+        .map((item) => item.path)
+        .filter((path) => typeof path === "string" && path.startsWith(`${ownerId}/`));
+      const { data: result, error } = await supabase.rpc("gadlink_delete_reel_post", { target_post_id: postId });
       if (error) throw error;
-      const mediaPaths = Array.isArray(paths) ? [...new Set(paths.filter((item) => typeof item === "string" && item))] : [];
+      if (result === false) {
+        if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
+          activationId += 1;
+          pauseAll();
+          activePath = null;
+        }
+        observer?.unobserve(card);
+        card.querySelectorAll("video").forEach((video) => { video.pause(); video.removeAttribute("src"); video.load(); });
+        for (const item of mediaByCard.get(card)?.items || []) {
+          cardsByPath.delete(item.path);
+          mediaUrls.delete(item.path);
+        }
+        card.remove();
+        showToast("Публикация уже была удалена.");
+        setStatus(container.querySelector(".reel-card:not([hidden])") ? "" : "Публикаций больше нет.");
+        return;
+      }
+      const returnedPaths = Array.isArray(result) ? result : [];
+      const mediaPaths = [...new Set([...returnedPaths, ...cardPaths])]
+        .filter((path) => typeof path === "string" && path.startsWith(`${ownerId}/`));
       if (!mediaPaths.length) throw new Error("Сервер не вернул файлы публикации.");
 
       if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
@@ -742,6 +1010,7 @@ export function createReelsFeed({ supabase, getUser }) {
       if (mediaPaths.includes(commentsPath)) {
         commentsPanel.hidden = true;
         commentsPath = null;
+        commentsRequestId += 1;
       }
       observer?.unobserve(card);
       card.querySelectorAll("video").forEach((video) => {
@@ -787,21 +1056,36 @@ export function createReelsFeed({ supabase, getUser }) {
   async function toggleSave(card, path) {
     if (!interactionsReady) return;
     const button = card.querySelector('[data-action="save"]');
+    const wasSaved = button.getAttribute("aria-pressed") === "true";
+    const setSavedState = (saved) => {
+      button.classList.toggle("is-active", saved);
+      button.setAttribute("aria-pressed", String(saved));
+      button.setAttribute("aria-label", saved ? "Убрать из сохранённых" : "Сохранить");
+    };
     button.disabled = true;
+    setSavedState(!wasSaved);
+    let saveCompleted = false;
     try {
       const { data, error } = await supabase.from("reel_saves").select("reel_path").eq("reel_path", path).eq("user_id", userId()).limit(1);
       if (error) throw error;
-      const result = data?.length
+      const saved = Boolean(data?.length);
+      setSavedState(!saved);
+      const result = saved
         ? await supabase.from("reel_saves").delete().eq("reel_path", path).eq("user_id", userId())
         : await supabase.from("reel_saves").insert({ reel_path: path, user_id: userId() });
       if (result.error) throw result.error;
+      saveCompleted = true;
       await refreshStats(card, path);
-    } catch (error) { disableDbActions(error); }
+    } catch (error) {
+      if (!saveCompleted) setSavedState(wasSaved);
+      disableDbActions(error);
+    }
     finally { button.disabled = !interactionsReady; }
   }
 
   async function openComments(path) {
     commentsPath = path;
+    const requestId = ++commentsRequestId;
     commentsPanel.hidden = false;
     commentsList.replaceChildren();
     if (!interactionsReady) {
@@ -811,6 +1095,7 @@ export function createReelsFeed({ supabase, getUser }) {
     const { data, error } = await supabase.from("reel_comments")
       .select("id,user_id,content,created_at")
       .eq("reel_path", path).order("created_at", { ascending: true }).limit(100);
+    if (requestId !== commentsRequestId || commentsPath !== path || commentsPanel.hidden) return;
     if (error) { commentsList.textContent = error.message; disableDbActions(error); return; }
     let namesById;
     try {
@@ -843,37 +1128,93 @@ export function createReelsFeed({ supabase, getUser }) {
   }
 
   async function deleteComment(commentId, path, button) {
-    button.disabled = true;
-    const { error } = await supabase.from("reel_comments")
-      .delete().eq("id", commentId).eq("reel_path", path).eq("user_id", userId());
-    if (error) {
+    const row = button.closest(".reel-comment");
+    const nextRow = row.nextSibling;
+    const card = cardsByPath.get(path);
+    const commentCount = card?.querySelector('[data-count="comments"]');
+    const previousCount = commentCount
+      ? Number.parseInt(commentCount.textContent.replace(/[^\d]/g, ""), 10) || 0
+      : 0;
+    row.remove();
+    if (commentCount) commentCount.textContent =
+      new Intl.NumberFormat("ru-RU").format(Math.max(0, previousCount - 1));
+    if (!commentsList.querySelector(".reel-comment")) commentsList.textContent = "Пока нет комментариев.";
+    try {
+      const { error } = await supabase.from("reel_comments")
+        .delete().eq("id", commentId).eq("reel_path", path).eq("user_id", userId());
+      if (error) throw error;
+    } catch (error) {
+      if (commentsPath === path && !commentsPanel.hidden) {
+        if (!commentsList.querySelector(".reel-comment")) commentsList.replaceChildren();
+        commentsList.insertBefore(row, nextRow?.parentNode === commentsList ? nextRow : null);
+      }
+      if (commentCount) commentCount.textContent = new Intl.NumberFormat("ru-RU").format(previousCount);
       const notice = document.createElement("small");
       notice.className = "reel-comment-error";
       notice.textContent = `Не удалось удалить: ${error.message}`;
-      button.insertAdjacentElement("afterend", notice);
+      row.append(notice);
       button.disabled = false;
+      setStatus(`Не удалось удалить комментарий: ${error.message}`, true);
       return;
     }
-    await openComments(path);
-    const card = cardsByPath.get(path);
-    if (card) await refreshStats(card, path);
+    if (commentsPath === path && !commentsPanel.hidden) await openComments(path);
+    if (card) await refreshStats(card, path).catch((error) => {
+      console.error("GadLink Reel comment stats:", error);
+      setStatus(`Комментарий удалён, но счётчик не обновился: ${error.message}`, true);
+    });
   }
 
   commentForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const content = commentInput.value.trim();
     if (!content || !commentsPath || !interactionsReady) return;
-    const { error } = await supabase.from("reel_comments").insert({ reel_path: commentsPath, user_id: userId(), content });
-    if (error) { commentsList.textContent = error.message; disableDbActions(error); return; }
+    const path = commentsPath;
+    const pendingComment = document.createElement("p");
+    pendingComment.className = "reel-comment is-pending";
+    const name = document.createElement("strong");
+    name.textContent = "Вы";
+    const text = document.createElement("span");
+    text.textContent = content;
+    pendingComment.append(name, text);
+    if (!commentsList.querySelector(".reel-comment")) commentsList.replaceChildren();
+    commentsList.append(pendingComment);
+    const card = cardsByPath.get(path);
+    const commentCount = card?.querySelector('[data-count="comments"]');
+    const previousCount = commentCount
+      ? Number.parseInt(commentCount.textContent.replace(/[^\d]/g, ""), 10) || 0
+      : 0;
+    if (commentCount) commentCount.textContent = new Intl.NumberFormat("ru-RU").format(previousCount + 1);
     commentInput.value = "";
-    await openComments(commentsPath);
-    const card = cardsByPath.get(commentsPath);
-    if (card) await refreshStats(card, commentsPath);
+    let insertError;
+    try {
+      const { error } = await supabase.from("reel_comments")
+        .insert({ reel_path: path, user_id: userId(), content });
+      insertError = error;
+    } catch (error) {
+      insertError = error;
+    }
+    if (insertError) {
+      pendingComment.remove();
+      if (commentCount) commentCount.textContent = new Intl.NumberFormat("ru-RU").format(previousCount);
+      if (commentsPath === path && !commentsList.querySelector(".reel-comment")) {
+        commentsList.textContent = "Не удалось отправить комментарий.";
+      }
+      commentInput.value = content;
+      setStatus(`Не удалось отправить комментарий: ${insertError.message}`, true);
+      disableDbActions(insertError);
+      return;
+    }
+    if (commentsPath === path && !commentsPanel.hidden) await openComments(path);
+    if (card) await refreshStats(card, path).catch((error) => {
+      console.error("GadLink Reel comment stats:", error);
+      setStatus(`Комментарий отправлен, но счётчик не обновился: ${error.message}`, true);
+    });
   });
 
   document.getElementById("reels-comments-close").addEventListener("click", () => {
     commentsPanel.hidden = true;
     commentsPath = null;
+    commentsRequestId += 1;
   });
 
   async function share(path) {
@@ -993,8 +1334,33 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   }
 
+  function nearestCard(cards) {
+    if (!cards.length) return null;
+    const feedTop = container.getBoundingClientRect().top;
+    return cards.reduce((nearest, card) => {
+      const currentDistance = Math.abs(card.getBoundingClientRect().top - feedTop);
+      const nearestDistance = Math.abs(nearest.getBoundingClientRect().top - feedTop);
+      return currentDistance < nearestDistance ? card : nearest;
+    }, cards[0]);
+  }
+
+  function scrollToCard(card) {
+    if (!card) return false;
+    const top = card.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+    container.scrollTo({ top, behavior: "smooth" });
+    return true;
+  }
+
   function stepVideo(direction) {
-    container.scrollBy({ top: direction * container.clientHeight, behavior: "smooth" });
+    const cards = [...container.querySelectorAll(".reel-card:not([hidden])")];
+    if (!cards.length) return false;
+    const activeCard = activePath ? cardsByPath.get(activePath) : null;
+    const currentCard = activeCard && cards.includes(activeCard) ? activeCard : nearestCard(cards);
+    const currentIndex = cards.indexOf(currentCard);
+    const target = cards[Math.max(0, Math.min(cards.length - 1, currentIndex + direction))];
+    if (target === currentCard || !scrollToCard(target)) return false;
+    void activateCard(target);
+    return true;
   }
 
   async function load() {
@@ -1008,7 +1374,7 @@ export function createReelsFeed({ supabase, getUser }) {
       postsTableReady = !postsError;
       if (postsError) console.error("GadLink Reel posts:", postsError);
 
-      const uploadedPosts = (posts || []).map((post) => ({
+      const uploadedPosts = (posts || []).filter((post) => Array.isArray(post.media_paths) && post.media_paths.length > 0).map((post) => ({
         id: post.id,
         path: post.media_paths[0],
         postId: post.id,
@@ -1023,16 +1389,23 @@ export function createReelsFeed({ supabase, getUser }) {
           name: path.split("/").pop()
         }))
       }));
-      const legacyFiles = postsError
-        ? (await listBucket()).map((file) => ({
-            path: file.path,
-            title: "",
-            description: "",
-            hashtags: [],
-            media: [{ ...file, type: "video" }]
-          }))
-        : [];
-      const files = [...uploadedPosts, ...legacyFiles];
+      const storedFiles = await listBucket();
+      const storedPaths = new Set(storedFiles.map((file) => file.path));
+      const availablePosts = uploadedPosts.filter((post) => post.media.every((item) => storedPaths.has(item.path)));
+      const missingMediaCount = uploadedPosts.length - availablePosts.length;
+      const postPaths = new Set(uploadedPosts.flatMap((post) => post.media.map((item) => item.path)));
+      // Loose Storage objects are legacy-only. With a working posts table they
+      // may be leftovers from a deletion and must not be resurrected in the feed.
+      const legacyFiles = (postsError ? storedFiles : [])
+        .filter((file) => file.type === "video" && !postPaths.has(file.path))
+        .map((file) => ({
+          path: file.path,
+          title: "",
+          description: "",
+          hashtags: [],
+          media: [{ ...file, type: "video" }]
+        }));
+      const files = [...availablePosts, ...legacyFiles];
       if (!files.length) {
         setStatus(postsError
           ? "Публикации пока недоступны. Примените supabase/reels.sql в Supabase SQL Editor."
@@ -1052,6 +1425,9 @@ export function createReelsFeed({ supabase, getUser }) {
         filterCards();
         observeCards();
       }
+      if (missingMediaCount) {
+        setStatus(`Скрыто публикаций с отсутствующими файлами: ${missingMediaCount}.`, true);
+      }
       loaded = true;
       try {
         await checkInteractionTables();
@@ -1061,7 +1437,7 @@ export function createReelsFeed({ supabase, getUser }) {
         });
         const activeCard = activeVideo?.closest(".reel-card");
         if (activeCard) await refreshStats(activeCard, activeCard.dataset.path);
-        if (!postsError && files.length) setStatus("");
+        if (!postsError && files.length && !missingMediaCount) setStatus("");
         if (searchInput.value.trim()) filterCards();
       } catch (error) { disableDbActions(error); }
       const requestedPath = new URLSearchParams(window.location.search).get("reel");
@@ -1287,6 +1663,7 @@ export function createReelsFeed({ supabase, getUser }) {
         title,
         description,
         hashtags,
+        createdAt: new Date().toISOString(),
         userId: userId(),
         media: uploadedPaths.map((path, index) => ({
           path,
@@ -1294,10 +1671,13 @@ export function createReelsFeed({ supabase, getUser }) {
           name: selectedFiles[index].name
         }))
       };
-      const card = makeCard(post);
-      cardsByPath.set(post.path, card);
-      uploadedPaths.forEach((path) => cardsByPath.set(path, card));
-      container.prepend(card);
+      let card = findPostCard(postId);
+      if (!card) {
+        card = makeCard(post);
+        container.prepend(card);
+        cardsByPath.set(post.path, card);
+        uploadedPaths.forEach((path) => cardsByPath.set(path, card));
+      }
       container.scrollTo({ top: 0, behavior: "smooth" });
       observeCards();
       await activateCard(card);
@@ -1353,24 +1733,52 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   });
 
-  container.addEventListener("wheel", (event) => {
-    if (Math.abs(event.deltaY) < 20 || wheelLocked) return;
+  playerLayout.addEventListener("wheel", (event) => {
+    if (event.ctrlKey) return;
     event.preventDefault();
-    wheelLocked = true;
-    container.scrollBy({ top: Math.sign(event.deltaY) * container.clientHeight, behavior: "smooth" });
-    window.setTimeout(() => { wheelLocked = false; }, 520);
+    if (!wheelLocked) {
+      wheelDelta += event.deltaY;
+      if (Math.abs(wheelDelta) >= 35) {
+        const direction = Math.sign(wheelDelta);
+        wheelDelta = 0;
+        if (stepVideo(direction)) wheelLocked = true;
+      }
+    }
+    window.clearTimeout(wheelReleaseTimer);
+    wheelReleaseTimer = window.setTimeout(() => {
+      wheelLocked = false;
+      wheelDelta = 0;
+      wheelReleaseTimer = null;
+    }, 260);
   }, { passive: false });
+  container.addEventListener("scroll", () => {
+    window.clearTimeout(scrollActivationTimer);
+    scrollActivationTimer = window.setTimeout(() => {
+      scrollActivationTimer = null;
+      if (!sectionActive || document.hidden) return;
+      const card = nearestCard([...container.querySelectorAll(".reel-card:not([hidden])")]);
+      if (card) void activateCard(card);
+    }, 100);
+  }, { passive: true });
   container.addEventListener("keydown", (event) => {
     if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp"].includes(event.key)) return;
     event.preventDefault();
     const direction = ["ArrowDown", "PageDown"].includes(event.key) ? 1 : -1;
-    container.scrollBy({ top: direction * container.clientHeight, behavior: "smooth" });
+    stepVideo(direction);
   });
   searchInput.addEventListener("input", filterCards);
-  document.getElementById("reels-prev").addEventListener("click", () => stepVideo(-1));
-  document.getElementById("reels-next").addEventListener("click", () => stepVideo(1));
+  document.getElementById("reels-prev").addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    stepVideo(-1);
+  });
+  document.getElementById("reels-next").addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    stepVideo(1);
+  });
   document.getElementById("reels-comments").addEventListener("keydown", (event) => {
-    if (event.key === "Escape") commentsPanel.hidden = true;
+    if (event.key === "Escape") document.getElementById("reels-comments-close").click();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) pauseAll();
@@ -1393,6 +1801,7 @@ export function createReelsFeed({ supabase, getUser }) {
       load().then(() => {
         if (loaded) {
           observeCards();
+          subscribeToPosts();
           subscribeToInteractions();
         }
       });
@@ -1402,8 +1811,17 @@ export function createReelsFeed({ supabase, getUser }) {
       activationId += 1;
       pauseAll();
       observer?.disconnect();
+      window.clearTimeout(scrollActivationTimer);
+      scrollActivationTimer = null;
+      window.clearTimeout(wheelReleaseTimer);
+      wheelReleaseTimer = null;
+      wheelLocked = false;
       commentsPanel.hidden = true;
       commentsPath = null;
+      commentsRequestId += 1;
+      if (postsChannel) void supabase.removeChannel(postsChannel);
+      postsChannel = null;
+      postsOwnerId = null;
       if (interactionsChannel) void supabase.removeChannel(interactionsChannel);
       interactionsChannel = null;
       interactionsOwnerId = null;

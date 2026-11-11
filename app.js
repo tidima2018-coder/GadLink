@@ -1,7 +1,7 @@
 import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames } from "./js/friends.js";
-import { createReelsFeed } from "./js/reels.js";
+import { createReelsFeed } from "./js/reels.js?v=4";
 import { createVoiceCallController } from "./js/voice-calls.js";
 import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
@@ -36,7 +36,6 @@ let reelsController = null;
 let menuCloseTimer = null;
 let menuAnimationFrame = null;
 let friendDialogCloseTimer = null;
-let groupDialogCloseTimer = null;
 let avatarPreviewUrl = null;
 let profileAvatarPreviewUrl = null;
 let communityDialogOpener = null;
@@ -173,29 +172,8 @@ function setCreateMenuOpen(isOpen) {
   const toggle = byId("add-contact-button");
   menu.hidden = !isOpen;
   toggle.setAttribute("aria-expanded", String(isOpen));
-  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню создания" : "Создать группу, канал или контакт");
+  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню создания" : "Создать канал или добавить контакт");
   if (isOpen) menu.querySelector('[role="menuitem"]')?.focus();
-}
-
-function setCreateGroupDialogOpen(isOpen, restoreFocus = true) {
-  const dialog = byId("create-group-dialog");
-  clearTimeout(groupDialogCloseTimer);
-  if (isOpen) {
-    dialog.hidden = false;
-    dialog.removeAttribute("inert");
-    requestAnimationFrame(() => dialog.classList.add("is-open"));
-    byId("conversation-users").focus();
-    return;
-  }
-
-  dialog.classList.remove("is-open");
-  dialog.setAttribute("inert", "");
-  if (restoreFocus) byId("add-contact-button").focus();
-  groupDialogCloseTimer = setTimeout(() => {
-    dialog.hidden = true;
-    dialog.removeAttribute("inert");
-    groupDialogCloseTimer = null;
-  }, 200);
 }
 
 function updateMenuAvatar(url) {
@@ -223,7 +201,6 @@ function showApp(isSignedIn) {
     setMenuOpen(false, false);
     setFriendDialogOpen(false, false);
     setCreateMenuOpen(false);
-    setCreateGroupDialogOpen(false, false);
   }
 }
 
@@ -1535,12 +1512,7 @@ byId("create-menu").addEventListener("click", (event) => {
   if (!action) return;
   setCreateMenuOpen(false);
 
-  if (action === "group") {
-    document.querySelector('[data-section="chats-section"]')?.click();
-    byId("conversation-form").reset();
-    setStatus("group-create-status", "");
-    setCreateGroupDialogOpen(true);
-  } else if (action === "channel") {
+  if (action === "channel") {
     showCommunitiesForChannelCreation();
   } else if (action === "contact") {
     setFriendDialogOpen(true);
@@ -1559,9 +1531,6 @@ document.addEventListener("click", (event) => {
 });
 byId("friend-add-close").addEventListener("click", () => setFriendDialogOpen(false));
 document.querySelector(".friend-add-dialog__backdrop").addEventListener("click", () => setFriendDialogOpen(false));
-byId("create-group-close").addEventListener("click", () => setCreateGroupDialogOpen(false));
-byId("create-group-dialog").querySelector(".friend-add-dialog__backdrop")
-  .addEventListener("click", () => setCreateGroupDialogOpen(false));
 byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
@@ -1611,25 +1580,6 @@ document.addEventListener("keydown", (event) => {
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
         first?.focus();
-      }
-    }
-    return;
-  }
-  if (!byId("create-group-dialog").hidden) {
-    if (event.key === "Escape") {
-      setCreateGroupDialogOpen(false);
-      return;
-    }
-    if (event.key === "Tab") {
-      const actions = [...byId("create-group-dialog").querySelectorAll(".friend-add-dialog__panel button:not(:disabled), .friend-add-dialog__panel input:not(:disabled)")];
-      const first = actions[0];
-      const last = actions[actions.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
       }
     }
     return;
@@ -1994,63 +1944,6 @@ byId("post-form").addEventListener("submit", async (event) => {
   byId("post-form").reset();
   setStatus("feed-status", "пост опубликован.");
   await loadPosts();
-});
-
-byId("conversation-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = byId("conversation-form");
-  const submitButton = form.querySelector('button[type="submit"]');
-  const usernames = [...new Set(byId("conversation-users").value
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean))];
-  const name = byId("conversation-name").value.trim();
-  if (!name) {
-    setStatus("group-create-status", "Укажите название группы.");
-    return;
-  }
-  if (!user?.id) {
-    setStatus("group-create-status", "Войдите в аккаунт, чтобы создать группу.");
-    return;
-  }
-  submitButton.disabled = true;
-  setStatus("group-create-status", "Создаём группу…");
-  try {
-    const { data: profiles, error: profileError } = await supabase
-      .from("profiles")
-      .select("id,username")
-      .in("username", usernames);
-    if (profileError) throw profileError;
-
-    const members = [...new Set([user.id, ...(profiles || []).map((profile) => profile.id)])];
-    if (members.length < 2) throw new Error("Укажите ник хотя бы одного существующего пользователя.");
-    if ((profiles || []).length !== usernames.length) {
-      throw new Error("Некоторые ники не найдены. Проверьте написание и попробуйте снова.");
-    }
-
-    const { data: conversation, error } = await supabase
-      .from("conversations")
-      .insert({ name, is_group: true, created_by: user.id })
-      .select("id,name,is_group")
-      .single();
-    if (error) throw error;
-
-    const { error: membersError } = await supabase.from("conversation_members").insert(
-      members.map((userId) => ({ conversation_id: conversation.id, user_id: userId }))
-    );
-    if (membersError) throw membersError;
-
-    form.reset();
-    await loadConversations();
-    setCreateGroupDialogOpen(false);
-    await openConversation(conversation);
-    setStatus("chat-status", "Группа создана.");
-  } catch (error) {
-    console.error("GadLink create group:", error);
-    setStatus("group-create-status", `Не удалось создать группу: ${error.message}`);
-  } finally {
-    submitButton.disabled = false;
-  }
 });
 
 byId("message-form").addEventListener("submit", async (event) => {

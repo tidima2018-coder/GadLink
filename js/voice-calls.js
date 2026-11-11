@@ -36,10 +36,73 @@ function formatCallDate(value) {
     : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
 }
 
+const RINGTONE_DATABASE = "gadlink-call-ringtones";
+const RINGTONE_STORE = "ringtones";
+const DEFAULT_RINGTONE_ID = "gadlink-default";
+const MAX_RINGTONE_SIZE = 10 * 1024 * 1024;
+
+let ringtoneDatabasePromise = null;
+function openRingtoneDatabase() {
+  if (ringtoneDatabasePromise) return ringtoneDatabasePromise;
+  ringtoneDatabasePromise = new Promise((resolve, reject) => {
+    if (!globalThis.indexedDB) {
+      reject(new Error("IndexedDB недоступна в этом браузере."));
+      return;
+    }
+    const request = indexedDB.open(RINGTONE_DATABASE, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(RINGTONE_STORE)) {
+        database.createObjectStore(RINGTONE_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => {
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
+    request.onerror = () => reject(request.error || new Error("Не удалось открыть локальное хранилище мелодий."));
+    request.onblocked = () => reject(new Error("Закройте другие вкладки GadLink и повторите попытку."));
+  }).catch((error) => {
+    ringtoneDatabasePromise = null;
+    throw error;
+  });
+  return ringtoneDatabasePromise;
+}
+
+function ringtoneDatabaseRequest(mode, operation) {
+  return openRingtoneDatabase().then((database) => new Promise((resolve, reject) => {
+    let request;
+    let transaction;
+    try {
+      transaction = database.transaction(RINGTONE_STORE, mode);
+      request = operation(transaction.objectStore(RINGTONE_STORE));
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    let result;
+    request.onsuccess = () => { result = request.result; };
+    request.onerror = () => reject(request.error || new Error("Ошибка локального хранилища мелодий."));
+    transaction.oncomplete = () => resolve(result);
+    transaction.onerror = () => reject(transaction.error || new Error("Ошибка локального хранилища мелодий."));
+    transaction.onabort = () => reject(transaction.error || new Error("Не удалось сохранить мелодию."));
+  }));
+}
+
+const ringtoneMimeCandidates = {
+  mp3: ["audio/mpeg"],
+  wav: ["audio/wav", "audio/x-wav"],
+  ogg: ["audio/ogg; codecs=vorbis", "audio/ogg"],
+  m4a: ["audio/mp4", "audio/x-m4a"]
+};
+
 export function createVoiceCallController({ supabase, getUser, getPublicProfileNames }) {
   const byId = (id) => document.getElementById(id);
   const dialog = byId("voice-call-dialog");
   const remoteAudio = byId("voice-call-remote-audio");
+  const ringtoneFileInput = byId("call-ringtone-file");
+  const ringtoneList = byId("call-ringtone-list");
+  const ringtoneStatus = byId("call-ringtone-status");
   let inboxChannel = null;
   let activeCall = null;
   let startingCall = false;
@@ -61,11 +124,261 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   let soundContext = null;
   let ringtoneTimer = null;
   let ringtoneKind = null;
+  let mutedRingtoneKind = null;
   let ringtoneGeneration = 0;
-  let soundEnabled = localStorage.getItem("gadlink-call-sounds") !== "false";
-  let soundVolume = Number(localStorage.getItem("gadlink-call-sound-volume"));
+  let previewingRingtone = false;
+  let ringtoneAudio = null;
+  let ringtoneAudioUrl = null;
+  let ringtoneAudioFadeFrame = 0;
+  let previewRingtoneId = null;
+  let customRingtones = [];
+  let activeRingtoneId = "gadlink-default";
+  let ringtoneLibraryReady = false;
+  const activeTones = new Set();
+  const readSoundSetting = (key) => {
+    try { return localStorage.getItem(key); } catch { return null; }
+  };
+  const writeSoundSetting = (key, value) => {
+    try { localStorage.setItem(key, String(value)); } catch (error) {
+      console.warn("GadLink call sound setting could not be saved:", error);
+    }
+  };
+  const storedVolume = readSoundSetting("gadlink-call-sound-volume");
+  let soundEnabled = readSoundSetting("gadlink-call-sounds") !== "false";
+  activeRingtoneId = readSoundSetting("gadlink-call-active-tone") || DEFAULT_RINGTONE_ID;
+  let soundVolume = storedVolume === null ? 0.45 : Number(storedVolume);
   if (!Number.isFinite(soundVolume)) soundVolume = 0.45;
+  soundVolume = Math.min(1, Math.max(0, soundVolume));
   let callOutputMuted = false;
+
+  function setRingtoneStatus(message, isError = false) {
+    if (!ringtoneStatus) return;
+    ringtoneStatus.textContent = message;
+    ringtoneStatus.dataset.state = isError ? "error" : "ok";
+  }
+
+  function renderRingtoneList() {
+    if (!ringtoneList) return;
+    ringtoneList.replaceChildren();
+    const entries = [{ id: DEFAULT_RINGTONE_ID, name: "Стандартная мелодия GadLink", type: "audio/webm" }, ...customRingtones];
+    for (const entry of entries) {
+      const row = document.createElement("article");
+      row.className = `call-ringtone-option${activeRingtoneId === entry.id ? " is-selected" : ""}${previewRingtoneId === entry.id ? " is-playing" : ""}`;
+      const title = document.createElement("strong");
+      title.className = "call-ringtone-option__name";
+      title.textContent = entry.name;
+      const icon = document.createElement("span");
+      icon.className = "call-ringtone-option__icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "♫";
+      const info = document.createElement("div");
+      info.className = "call-ringtone-option__info";
+      info.append(icon, title);
+      const state = document.createElement("span");
+      state.className = "call-ringtone-option__state";
+      state.textContent = activeRingtoneId === entry.id ? "Установлена" : "";
+      info.append(state);
+      const actions = document.createElement("div");
+      actions.className = "call-ringtone-option__actions";
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.dataset.ringtoneAction = "preview";
+      preview.dataset.ringtoneId = entry.id;
+      preview.textContent = previewRingtoneId === entry.id ? "Остановить" : "Прослушать";
+      preview.disabled = Boolean(activeCall || startingCall) && previewRingtoneId !== entry.id;
+      const install = document.createElement("button");
+      install.type = "button";
+      install.dataset.ringtoneAction = "install";
+      install.dataset.ringtoneId = entry.id;
+      install.textContent = activeRingtoneId === entry.id ? "Выбрана" : "Установить";
+      install.disabled = activeRingtoneId === entry.id;
+      actions.append(preview, install);
+      if (entry.id !== DEFAULT_RINGTONE_ID) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.dataset.ringtoneAction = "delete";
+        remove.dataset.ringtoneId = entry.id;
+        remove.textContent = "Удалить";
+        actions.append(remove);
+      }
+      row.append(info, actions);
+      if (previewRingtoneId === entry.id) {
+        const waves = document.createElement("span");
+        waves.className = "call-ringtone-waves";
+        waves.setAttribute("aria-label", "Мелодия воспроизводится");
+        waves.innerHTML = "<i></i><i></i><i></i><i></i>";
+        info.append(waves);
+      }
+      ringtoneList.append(row);
+    }
+  }
+
+  async function loadRingtoneLibrary() {
+    if (ringtoneLibraryReady) return;
+    try {
+      customRingtones = (await ringtoneDatabaseRequest("readonly", (store) => store.getAll())) || [];
+      customRingtones.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      ringtoneLibraryReady = true;
+      if (!customRingtones.some((item) => item.id === activeRingtoneId)) {
+        activeRingtoneId = DEFAULT_RINGTONE_ID;
+        writeSoundSetting("gadlink-call-active-tone", activeRingtoneId);
+      }
+      renderRingtoneList();
+      setRingtoneStatus(customRingtones.length ? "Мелодии хранятся только в этом браузере на этом устройстве." : "Добавьте аудиофайл до 10 МБ. Он останется на этом устройстве.");
+    } catch (error) {
+      setRingtoneStatus(error.message || "Не удалось открыть локальное хранилище мелодий.", true);
+    }
+  }
+
+  function selectRingtone(id) {
+    if (id !== DEFAULT_RINGTONE_ID && !customRingtones.some((item) => item.id === id)) return;
+    if (previewingRingtone) stopRingtone();
+    activeRingtoneId = id;
+    writeSoundSetting("gadlink-call-active-tone", id);
+    renderRingtoneList();
+    setRingtoneStatus("Мелодия будет использоваться для входящих звонков.");
+  }
+
+  async function deleteCustomRingtone(id) {
+    const entry = customRingtones.find((item) => item.id === id);
+    if (!entry) return;
+    const wasActiveIncoming = activeRingtoneId === id && ringtoneKind === "incoming" && !previewingRingtone;
+    try {
+      if (previewRingtoneId === id || wasActiveIncoming) stopRingtone();
+      await ringtoneDatabaseRequest("readwrite", (store) => store.delete(id));
+      customRingtones = customRingtones.filter((item) => item.id !== id);
+      if (activeRingtoneId === id) selectRingtone(DEFAULT_RINGTONE_ID);
+      else renderRingtoneList();
+      if (wasActiveIncoming && activeCall) void startRingtone("incoming");
+      setRingtoneStatus("Мелодия удалена с этого устройства.");
+    } catch (error) {
+      setRingtoneStatus(error.message || "Не удалось удалить мелодию.", true);
+    }
+  }
+
+  function getSupportedRingtoneType(file) {
+    const extension = file.name.split(".").pop().toLowerCase();
+    const candidates = ringtoneMimeCandidates[extension];
+    if (!candidates) return null;
+    const audio = document.createElement("audio");
+    const browserSupports = candidates.some((type) => audio.canPlayType(type) !== "");
+    const declaredType = !file.type || candidates.some((candidate) => candidate.split(";")[0] === file.type.split(";")[0]);
+    return browserSupports && declaredType ? (file.type || candidates[0]) : null;
+  }
+
+  async function saveCustomRingtone(file) {
+    if (!file) return;
+    if (file.size > MAX_RINGTONE_SIZE) {
+      setRingtoneStatus("Размер файла превышает 10 МБ.", true);
+      return;
+    }
+    const type = getSupportedRingtoneType(file);
+    if (!type) {
+      setRingtoneStatus("Этот формат не поддерживается браузером. Выберите MP3, WAV, OGG или M4A.", true);
+      return;
+    }
+    const id = globalThis.crypto?.randomUUID?.() || `ringtone-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const record = { id, name: file.name, type, size: file.size, blob: file, createdAt: Date.now() };
+    try {
+      await ringtoneDatabaseRequest("readwrite", (store) => store.put(record));
+      customRingtones.push(record);
+      renderRingtoneList();
+      setRingtoneStatus(`Мелодия «${file.name}» сохранена на этом устройстве.`);
+    } catch (error) {
+      setRingtoneStatus(error.message || "Не удалось сохранить аудиофайл. Проверьте свободное место браузера.", true);
+    } finally {
+      if (ringtoneFileInput) ringtoneFileInput.value = "";
+    }
+  }
+
+  function fadeInCustomRingtone(audio, generation) {
+    if (ringtoneAudioFadeFrame) cancelAnimationFrame(ringtoneAudioFadeFrame);
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const startedAt = performance.now();
+    const duration = reducedMotion ? 0 : 280;
+    const tick = (now) => {
+      if (generation !== ringtoneGeneration || ringtoneAudio !== audio) return;
+      const progress = duration ? Math.min(1, (now - startedAt) / duration) : 1;
+      audio.volume = soundVolume * progress;
+      if (progress < 1) ringtoneAudioFadeFrame = requestAnimationFrame(tick);
+      else ringtoneAudioFadeFrame = 0;
+    };
+    ringtoneAudioFadeFrame = requestAnimationFrame(tick);
+  }
+
+  async function resumeCustomPreview() {
+    if (!ringtoneAudio) return false;
+    try {
+      await ringtoneAudio.play();
+      fadeInCustomRingtone(ringtoneAudio, ringtoneGeneration);
+      byId("voice-call-sound-notice").hidden = true;
+      return true;
+    } catch (error) {
+      setRingtoneStatus("Браузер пока блокирует звук. Проверьте разрешение на воспроизведение для сайта.", true);
+      console.warn("GadLink could not resume ringtone preview:", error);
+      return false;
+    }
+  }
+
+  async function playCustomRingtone(id, { preview = false, generation = ringtoneGeneration } = {}) {
+    let entry = customRingtones.find((item) => item.id === id);
+    if (!entry) {
+      try { entry = await ringtoneDatabaseRequest("readonly", (store) => store.get(id)); } catch { /* handled below */ }
+    }
+    if (generation !== ringtoneGeneration) return;
+    if (!entry?.blob) {
+      if (!preview && id !== DEFAULT_RINGTONE_ID) {
+        selectRingtone(DEFAULT_RINGTONE_ID);
+        return startRingtone("incoming");
+      }
+      setRingtoneStatus("Файл мелодии не найден. Выберите стандартную мелодию или добавьте файл снова.", true);
+      stopRingtone();
+      return;
+    }
+    const url = URL.createObjectURL(entry.blob);
+    const audio = new Audio(url);
+    ringtoneAudio = audio;
+    ringtoneAudioUrl = url;
+    audio.loop = !preview;
+    audio.preload = "auto";
+    audio.volume = 0;
+    audio.addEventListener("ended", () => { if (preview && generation === ringtoneGeneration) stopRingtone(); }, { once: true });
+    audio.addEventListener("error", () => {
+      if (generation === ringtoneGeneration) {
+        setRingtoneStatus("Браузер не смог воспроизвести этот аудиофайл.", true);
+        stopRingtone();
+      }
+    }, { once: true });
+    try {
+      await audio.play();
+      if (generation !== ringtoneGeneration) {
+        releaseRingtoneAudio(audio, url);
+        return;
+      }
+      fadeInCustomRingtone(audio, generation);
+      byId("voice-call-sound-notice").hidden = true;
+      if (preview) previewRingtoneId = id;
+      if (!preview && navigator.vibrate) navigator.vibrate([180, 120, 180, 850]);
+      renderRingtoneList();
+    } catch (error) {
+      if (generation !== ringtoneGeneration) {
+        releaseRingtoneAudio(audio, url);
+        return;
+      }
+      byId("voice-call-sound-notice").hidden = !activeCall;
+      if (preview) setRingtoneStatus("Браузер заблокировал звук. Нажмите «Прослушать» ещё раз после взаимодействия со страницей.", true);
+      else console.info("GadLink incoming ringtone awaits a user gesture:", error);
+    }
+  }
+
+  function releaseRingtoneAudio(audio, url) {
+    try { audio.pause(); } catch { /* already stopped */ }
+    try { audio.currentTime = 0; } catch { /* media is not seekable */ }
+    try { audio.removeAttribute("src"); audio.load(); } catch { /* already released */ }
+    if (ringtoneAudio === audio) ringtoneAudio = null;
+    if (ringtoneAudioUrl === url) ringtoneAudioUrl = null;
+    URL.revokeObjectURL(url);
+  }
 
   function setStatus(message) {
     byId("calls-status").textContent = message;
@@ -76,13 +389,26 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     byId("voice-call-waves").classList.toggle("is-active", message === "В разговоре");
   }
 
-  function unlockSound() {
+  async function unlockSound() {
     if (!soundContext) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return;
-      soundContext = new AudioContextClass();
+      if (!AudioContextClass) return false;
+      try { soundContext = new AudioContextClass(); }
+      catch (error) {
+        console.warn("GadLink Web Audio is unavailable:", error);
+        return false;
+      }
     }
-    if (soundContext.state === "suspended") void soundContext.resume().catch(() => {});
+    try {
+      if (soundContext.state !== "running") await soundContext.resume();
+      const unlocked = soundContext.state === "running";
+      byId("voice-call-sound-notice").hidden = unlocked || !activeCall || !ringtoneKind;
+      return unlocked;
+    } catch (error) {
+      console.warn("GadLink could not unlock call audio:", error);
+      byId("voice-call-sound-notice").hidden = false;
+      return false;
+    }
   }
 
   function stopRingtone() {
@@ -90,13 +416,37 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     clearInterval(ringtoneTimer);
     ringtoneTimer = null;
     ringtoneKind = null;
+    previewingRingtone = false;
+    previewRingtoneId = null;
+    if (ringtoneAudioFadeFrame) cancelAnimationFrame(ringtoneAudioFadeFrame);
+    ringtoneAudioFadeFrame = 0;
+    const audio = ringtoneAudio;
+    const audioUrl = ringtoneAudioUrl;
+    ringtoneAudio = null;
+    ringtoneAudioUrl = null;
+    if (audio && audioUrl) releaseRingtoneAudio(audio, audioUrl);
+    for (const { oscillator, envelope } of activeTones) {
+      try {
+        const now = soundContext?.currentTime || 0;
+        envelope.gain.cancelScheduledValues(now);
+        envelope.gain.setTargetAtTime(0.0001, now, 0.025);
+        oscillator.stop(now + 0.12);
+      } catch { /* already stopped */ }
+    }
     if (navigator.vibrate) navigator.vibrate(0);
+    byId("voice-call-sound-notice").hidden = true;
+    renderRingtoneList();
   }
 
   function tone(frequency, start, duration, type = "sine", gain = 0.14) {
     if (!soundEnabled || !soundContext || soundContext.state !== "running") return;
     const oscillator = soundContext.createOscillator();
     const envelope = soundContext.createGain();
+    activeTones.add({ oscillator, envelope });
+    oscillator.addEventListener("ended", () => {
+      for (const entry of activeTones) if (entry.oscillator === oscillator) activeTones.delete(entry);
+      try { oscillator.disconnect(); envelope.disconnect(); } catch { /* already disconnected */ }
+    }, { once: true });
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(frequency, start);
     envelope.gain.setValueAtTime(0.0001, start);
@@ -107,10 +457,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     oscillator.stop(start + duration + 0.02);
   }
 
-  function playPattern(kind) {
+  async function playPattern(kind, generation = ringtoneGeneration) {
     if (!soundEnabled) return;
-    unlockSound();
-    const generation = ringtoneGeneration;
+    if (!await unlockSound() || generation !== ringtoneGeneration) {
+      if (ringtoneKind && ringtoneGeneration === generation) byId("voice-call-sound-notice").hidden = false;
+      return;
+    }
     if (!soundContext || soundContext.state !== "running") return;
     const now = soundContext.currentTime + 0.04;
     const note = (frequency, offset, duration, gain) => tone(frequency, now + offset, duration, "sine", gain);
@@ -121,41 +473,71 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       note(440, 0, 0.75, 0.09); note(480, 0, 0.75, 0.04);
       note(440, 1.05, 0.75, 0.09); note(480, 1.05, 0.75, 0.04);
     }
-    if (generation !== ringtoneGeneration) return;
   }
 
-  function startRingtone(kind) {
+  async function startRingtone(kind, { preview = false, customId = null } = {}) {
     stopRingtone();
     if (!soundEnabled) return;
     ringtoneKind = kind;
+    previewingRingtone = preview;
     const generation = ringtoneGeneration;
-    playPattern(kind);
+    const selectedRingtoneId = customId || activeRingtoneId;
+    if (kind === "incoming" && selectedRingtoneId !== DEFAULT_RINGTONE_ID) {
+      await playCustomRingtone(selectedRingtoneId, { preview, generation });
+      if (generation === ringtoneGeneration && preview) {
+        previewRingtoneId = selectedRingtoneId;
+        renderRingtoneList();
+      }
+      return;
+    }
+    const unlocked = await unlockSound();
+    if (generation !== ringtoneGeneration || ringtoneKind !== kind) return;
+    if (!unlocked) {
+      byId("voice-call-sound-notice").hidden = !activeCall;
+      if (preview) setStatus("Браузер заблокировал мелодию. Разрешите звук для сайта и нажмите «Прослушать» ещё раз.");
+      return;
+    }
+    void playPattern(kind, generation);
     if (navigator.vibrate && typeof navigator.vibrate === "function") {
       navigator.vibrate(kind === "incoming" ? [180, 120, 180, 850] : [90, 1300]);
     }
     ringtoneTimer = setInterval(() => {
       if (generation !== ringtoneGeneration || ringtoneKind !== kind) return;
-      playPattern(kind);
+      void playPattern(kind, generation);
       if (navigator.vibrate) navigator.vibrate(kind === "incoming" ? [180, 120, 180, 850] : [90, 1300]);
     }, 2600);
+    if (preview) {
+      previewRingtoneId = DEFAULT_RINGTONE_ID;
+      renderRingtoneList();
+    }
   }
 
   function playCallCue(kind) {
     stopRingtone();
     if (!soundEnabled) return;
-    unlockSound();
-    if (!soundContext || soundContext.state !== "running") return;
-    const now = soundContext.currentTime + 0.03;
-    if (kind === "connected") { tone(523.25, now, 0.12, "sine", 0.11); tone(783.99, now + 0.1, 0.24, "sine", 0.1); }
-    else if (kind === "rejected") { tone(493.88, now, 0.17, "triangle", 0.11); tone(349.23, now + 0.18, 0.34, "triangle", 0.1); }
-    else if (kind === "ended") { tone(587.33, now, 0.12, "sine", 0.1); tone(392, now + 0.14, 0.22, "sine", 0.08); }
+    const generation = ringtoneGeneration;
+    void unlockSound().then((unlocked) => {
+      if (!unlocked || generation !== ringtoneGeneration || !soundEnabled) return;
+      const now = soundContext.currentTime + 0.03;
+      if (kind === "connected") { tone(523.25, now, 0.12, "sine", 0.11); tone(783.99, now + 0.1, 0.24, "sine", 0.1); }
+      else if (kind === "rejected") { tone(493.88, now, 0.17, "triangle", 0.11); tone(349.23, now + 0.18, 0.34, "triangle", 0.1); }
+      else if (kind === "ended") { tone(587.33, now, 0.12, "sine", 0.1); tone(392, now + 0.14, 0.22, "sine", 0.08); }
+    });
   }
 
   function setSoundsEnabled(enabled) {
     soundEnabled = enabled;
-    localStorage.setItem("gadlink-call-sounds", String(enabled));
-    if (!enabled) stopRingtone();
-    byId("call-sounds-enabled").checked = enabled;
+    writeSoundSetting("gadlink-call-sounds", enabled);
+    if (!enabled) {
+      if (ringtoneKind && !previewingRingtone) mutedRingtoneKind = ringtoneKind;
+      stopRingtone();
+    } else if (mutedRingtoneKind && activeCall && !activeCall.accepted) {
+      const kind = mutedRingtoneKind;
+      mutedRingtoneKind = null;
+      void startRingtone(kind);
+    }
+    const toggle = byId("call-sounds-enabled");
+    if (toggle) toggle.checked = enabled;
   }
 
   function renderHistory(owner, names = new Map()) {
@@ -610,6 +992,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
 
     try {
       if (payload.type === "accepted" && activeCall.outgoing) {
+        stopRingtone();
         activeCall.accepted = true;
         if (activeCall.timeout) clearTimeout(activeCall.timeout);
         startConnectionTimer(activeCall);
@@ -734,6 +1117,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   async function releaseCallResources({ keepErrorDialog = false, expectedCall = null } = {}) {
     const call = expectedCall || activeCall;
     if (!call || activeCall !== call) return;
+    stopRingtone();
     activeCall = null;
     startingCall = false;
     clearTimeout(call.timeout);
@@ -776,7 +1160,6 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     call.finishing = true;
     const outcome = action === "missed" || message?.toLowerCase().includes("пропущ") ? "missed"
       : message?.toLowerCase().includes("отклон") || message?.toLowerCase().includes("занят") ? "rejected" : "ended";
-    playCallCue(outcome === "rejected" ? "rejected" : "ended");
     if (outcome === "missed" && !call.outgoing) notifyMissedCall(call.username);
     if (message) setStatus(message);
     if (sendTransition) {
@@ -787,7 +1170,10 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         setStatus(`Не удалось обновить историю звонка: ${error.message}`);
       }
     }
-    if (activeCall === call) await releaseCallResources({ expectedCall: call });
+    if (activeCall === call) {
+      await releaseCallResources({ expectedCall: call });
+      playCallCue(outcome === "rejected" ? "rejected" : "ended");
+    }
   }
 
   async function failCall(message) {
@@ -840,6 +1226,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     };
     activeCall = call;
     showCallDialog(call);
+    void startRingtone("outgoing");
     setCallStatus("Готовим вызов…");
 
     // Fetch ICE credentials while the phone is ringing, instead of after answer.
@@ -952,6 +1339,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       if (getUser()?.id !== owner.id || activeCall) return;
       activeCall = call;
       showCallDialog(call, true);
+      void startRingtone("incoming");
       setCallStatus("Входящий звонок…");
       void getIceServers();
       void getPeerProfile(row.caller_id).then((profile) => {
@@ -1027,6 +1415,9 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       return;
     }
 
+    stopRingtone();
+    void unlockSound();
+    call.accepting = true;
     const acceptButton = byId("voice-call-accept");
     acceptButton.disabled = true;
     let acceptedOnServer = false;
@@ -1042,6 +1433,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       if (activeCall !== call) return;
       acceptedOnServer = true;
       call.accepted = true;
+      call.accepting = false;
       clearTimeout(call.timeout);
       startConnectionTimer(call);
       byId("voice-call-incoming-actions").hidden = true;
@@ -1052,12 +1444,14 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     } catch (error) {
       console.error("GadLink accept call:", error);
       if (activeCall === call) {
+        call.accepting = false;
         if (acceptedOnServer) {
           await failCall(`Не удалось принять звонок: ${error.message}`);
         } else {
           setCallStatus(error.name === "NotAllowedError"
             ? "Разрешите доступ к микрофону, чтобы принять звонок."
             : `Не удалось принять звонок: ${error.message}`);
+          if (soundEnabled) void startRingtone("incoming");
         }
       }
       if (call.localStream) {
@@ -1146,10 +1540,17 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         }
         if (payload.eventType === "UPDATE" && activeCall?.id === row.id) {
           if (row.status === "accepted" && activeCall.outgoing && !activeCall.accepted) {
+            stopRingtone();
             activeCall.accepted = true;
             clearTimeout(activeCall.timeout);
             startConnectionTimer(activeCall);
             void createOffer();
+          } else if (row.status === "accepted" && !activeCall.outgoing) {
+            stopRingtone();
+            if (!activeCall.accepted && !activeCall.accepting) {
+              setStatus("Звонок принят на другом устройстве.");
+              void releaseCallResources({ expectedCall: activeCall });
+            }
           } else if (!["ringing", "accepted"].includes(row.status)) {
             void finishCall(
               row.status === "missed" ? "Пропущенный звонок."
@@ -1246,8 +1647,67 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     remoteAudio.volume = Number(event.currentTarget.value);
   });
   byId("voice-call-dialog").addEventListener("click", () => {
+    void unlockSound();
     void remoteAudio.play().catch((error) => console.warn("GadLink audio playback:", error));
   });
+  byId("call-sounds-enabled").checked = soundEnabled;
+  byId("call-sound-volume").value = String(soundVolume);
+  byId("call-sounds-enabled").addEventListener("change", (event) => {
+    setSoundsEnabled(event.currentTarget.checked);
+    setStatus(event.currentTarget.checked ? "Звуки звонков включены." : "Звуки звонков выключены.");
+  });
+  byId("call-sound-volume").addEventListener("input", (event) => {
+    soundVolume = Math.min(1, Math.max(0, Number(event.currentTarget.value) || 0));
+    writeSoundSetting("gadlink-call-sound-volume", soundVolume);
+    if (ringtoneAudio) ringtoneAudio.volume = soundVolume;
+  });
+  ringtoneFileInput?.addEventListener("change", (event) => void saveCustomRingtone(event.currentTarget.files?.[0]));
+  ringtoneList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-ringtone-action]");
+    if (!button) return;
+    const { ringtoneAction: action, ringtoneId: id } = button.dataset;
+    if (action === "install") selectRingtone(id);
+    else if (action === "delete") void deleteCustomRingtone(id);
+    else if (action === "preview") {
+      if (previewRingtoneId === id && ringtoneAudio?.paused) void resumeCustomPreview();
+      else if (previewRingtoneId === id) stopRingtone();
+      else if (activeCall || startingCall) setRingtoneStatus("Прослушивание недоступно во время звонка.", true);
+      else if (!soundEnabled) setRingtoneStatus("Сначала включите звуки звонков.", true);
+      else void startRingtone("incoming", { preview: true, customId: id });
+    }
+  });
+  byId("voice-call-sound-enable").addEventListener("click", async () => {
+    let enabled = await unlockSound();
+    if (ringtoneAudio) {
+      try {
+        await ringtoneAudio.play();
+        enabled = true;
+        const generation = ringtoneGeneration;
+        fadeInCustomRingtone(ringtoneAudio, generation);
+      }
+      catch (error) { console.warn("GadLink custom ringtone playback is still blocked:", error); enabled = false; }
+    }
+    if (!enabled) {
+      setStatus("Браузер не разрешил воспроизведение звука. Проверьте настройки сайта и нажмите кнопку ещё раз.");
+      return;
+    }
+    byId("voice-call-sound-notice").hidden = true;
+    if (ringtoneKind && !ringtoneTimer) {
+      const kind = ringtoneKind;
+      const preview = previewingRingtone;
+      const customId = previewRingtoneId;
+      void startRingtone(kind, { preview, ...(customId ? { customId } : {}) });
+    }
+  });
+  const resumeRingtoneAfterGesture = () => {
+    if (!soundEnabled || !ringtoneKind || soundContext?.state === "running") return;
+    const kind = ringtoneKind;
+    const preview = previewingRingtone;
+    const customId = previewRingtoneId;
+    void startRingtone(kind, { preview, ...(customId ? { customId } : {}) });
+  };
+  document.addEventListener("pointerdown", resumeRingtoneAfterGesture, { capture: true });
+  document.addEventListener("keydown", resumeRingtoneAfterGesture, { capture: true });
   window.addEventListener("online", () => {
     if (getUser()?.id && initialisedUserId === getUser().id) {
       void Promise.all([subscribeInbox(getUser().id), refreshHistory()]);
@@ -1264,6 +1724,8 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     for (const track of activeCall.localStream?.getTracks() || []) track.stop();
     activeCall.peerConnection?.close();
   });
+  renderRingtoneList();
+  void loadRingtoneLibrary();
 
   return { initialize, shutdown, startCall, refreshHistory, resumeIncomingCall };
 }

@@ -50,6 +50,12 @@ create table if not exists public.reel_posts (
 );
 create index if not exists reel_posts_created_idx on public.reel_posts (created_at desc);
 
+alter table public.reel_likes replica identity full;
+alter table public.reel_saves replica identity full;
+alter table public.reel_reposts replica identity full;
+alter table public.reel_comments replica identity full;
+alter table public.reel_posts replica identity full;
+
 alter table public.reel_likes enable row level security;
 alter table public.reel_saves enable row level security;
 alter table public.reel_reposts enable row level security;
@@ -201,17 +207,25 @@ revoke all on function public.gadlink_delete_reel_post(uuid) from public;
 grant execute on function public.gadlink_delete_reel_post(uuid) to authenticated;
 
 do $$
+declare
+  target_table text;
 begin
-  if exists (select 1 from pg_catalog.pg_publication where pubname = 'supabase_realtime')
-    and not exists (
-      select 1 from pg_catalog.pg_publication_tables
-      where pubname = 'supabase_realtime'
-        and schemaname = 'public'
-        and tablename = 'reel_reposts'
-    )
-  then
-    alter publication supabase_realtime add table public.reel_reposts;
+  if exists (
+    select 1 from pg_catalog.pg_publication
+    where pubname = 'supabase_realtime' and not puballtables
+  ) then
+    foreach target_table in array array[
+      'reel_posts', 'reel_likes', 'reel_comments', 'reel_saves', 'reel_reposts'
+    ] loop
+      if not exists (
+        select 1 from pg_catalog.pg_publication_tables
+        where pubname = 'supabase_realtime'
+          and schemaname = 'public'
+          and tablename = target_table
+      ) then
+        execute format('alter publication supabase_realtime add table public.%I', target_table);
+      end if;
+    end loop;
   end if;
 end
 $$;
-
