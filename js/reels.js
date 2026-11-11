@@ -1023,16 +1023,15 @@ export function createReelsFeed({ supabase, getUser }) {
           name: path.split("/").pop()
         }))
       }));
-      const postPaths = new Set(uploadedPosts.flatMap((post) => post.media.map((item) => item.path)));
-      const legacyFiles = (await listBucket())
-        .filter((file) => !postPaths.has(file.path))
-        .map((file) => ({
-          path: file.path,
-          title: "",
-          description: "",
-          hashtags: [],
-          media: [{ ...file, type: "video" }]
-        }));
+      const legacyFiles = postsError
+        ? (await listBucket()).map((file) => ({
+            path: file.path,
+            title: "",
+            description: "",
+            hashtags: [],
+            media: [{ ...file, type: "video" }]
+          }))
+        : [];
       const files = [...uploadedPosts, ...legacyFiles];
       if (!files.length) {
         setStatus(postsError
