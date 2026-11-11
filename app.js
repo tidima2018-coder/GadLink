@@ -1721,8 +1721,13 @@ document.querySelectorAll("[data-conversation-filter]").forEach((button) => {
   });
 });
 
+byId("auth-form").querySelector('button[type="submit"]').addEventListener("click", () => {
+  byId("auth-form").classList.add("auth-form--signup-primary");
+});
+
 byId("auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  byId("auth-form").classList.add("auth-form--signup-primary");
   const submitButton = byId("auth-form").querySelector('button[type="submit"]');
   submitButton.disabled = true;
   try {
@@ -1755,6 +1760,7 @@ byId("auth-form").addEventListener("submit", async (event) => {
 });
 
 byId("sign-up").addEventListener("click", async () => {
+  byId("auth-form").classList.remove("auth-form--signup-primary");
   if (!byId("auth-form").reportValidity()) return;
 
   const button = byId("sign-up");

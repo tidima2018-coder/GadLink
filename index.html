@@ -75,12 +75,14 @@
 
   <main>
     <section id="auth-section">
+      <img class="auth-logo" src="./assets/gadlink-icon-192.png" alt="GadLink">
+      <p class="auth-intro">Общайтесь и оставайтесь на связи</p>
       <h2>вход и регистрация</h2>
       <form id="auth-form">
         <label for="auth-email">почта</label>
-        <input id="auth-email" type="email" autocomplete="email" required>
+        <input id="auth-email" type="email" autocomplete="email" placeholder="name@example.com" required>
         <label for="auth-password">пароль</label>
-        <input id="auth-password" type="password" autocomplete="current-password" minlength="6" required>
+        <input id="auth-password" type="password" autocomplete="current-password" placeholder="Введите пароль" minlength="6" required>
         <button type="submit">войти</button>
         <button id="sign-up" type="button">зарегистрироваться</button>
       </form>

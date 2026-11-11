@@ -444,6 +444,53 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   #profile-form, #post-form, #conversation-form, #server-form, #channel-form { padding: 14px; }
 }
 
+/* Compact GadLink sign-in card inspired by the supplied messenger reference. */
+body:has(#auth-section:not([hidden])) {
+  background-color: #08070b;
+  background-image:
+    radial-gradient(ellipse at 50% 42%, rgba(114, 53, 77, .13), transparent 48%),
+    var(--bg);
+}
+body:has(#auth-section:not([hidden]))::before {
+  z-index: 0;
+  opacity: .16;
+  mask-image: none;
+  background: url("assets/daf64.png") center / 520px auto repeat;
+}
+body:has(#auth-section:not([hidden])) main { position: relative; z-index: 1; display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+#auth-section {
+  width: min(100%, 396px);
+  max-height: calc(100dvh - 40px);
+  margin: auto;
+  padding: 30px 28px 26px;
+  border: 0;
+  border-radius: 30px;
+  background: #202022;
+  box-shadow: 0 28px 90px rgba(0,0,0,.55);
+  text-align: center;
+}
+.auth-logo { display: block; width: 96px; height: 96px; margin: 0 auto 20px; border-radius: 26px; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+#auth-section h2 { margin: 0 0 7px; font-size: clamp(23px, 5vw, 27px); font-weight: 650; letter-spacing: -.035em; }
+.auth-intro { margin: 0 auto 24px; color: #b8b5bb; font-size: 14px; }
+#auth-form { display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; }
+#auth-form label { margin: 5px 0 0; color: #c9c5cb; font-size: 12px; }
+#auth-form input { min-height: 54px; padding: 0 15px; border: 1px solid rgba(255,255,255,.10); border-radius: 15px; background: #1d1d1f; }
+#auth-form input::placeholder { color: #77747b; }
+#auth-form input:focus { border-color: var(--accent-strong); box-shadow: 0 0 0 2px rgba(222,140,152,.12); }
+#auth-form button[type="submit"], #auth-form #sign-up { width: 100%; min-height: 52px; flex: 0 0 auto; margin: 0; border-radius: 15px; font-size: 15px; }
+#auth-form button[type="submit"] { order: 1; }
+#auth-form #sign-up { order: 2; border: 1px solid rgba(222,140,152,.22); color: #f0b5bf; background: rgba(222,140,152,.08); }
+#auth-form button[type="submit"], #auth-form #sign-up { transition: color .2s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease, transform .16s ease; }
+#auth-form.auth-form--signup-primary button[type="submit"] { order: 2; color: #e5c9cd; border-color: rgba(222,140,152,.2); background: rgba(222,140,152,.08); box-shadow: none; }
+#auth-form.auth-form--signup-primary #sign-up { order: 1; color: var(--accent-ink); border-color: transparent; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); box-shadow: 0 7px 22px rgba(222,140,152,.16); }
+#auth-status { text-align: center; }
+#resend-confirmation { width: 100%; }
+@media (max-width: 480px) {
+  body:has(#auth-section:not([hidden])) main { padding: 14px; }
+  #auth-section { padding: 26px 22px 22px; border-radius: 26px; }
+  .auth-logo { width: 82px; height: 82px; margin-bottom: 18px; border-radius: 23px; }
+}
+
 #auth-status.auth-status--error {
   display: flex;
   align-items: center;
