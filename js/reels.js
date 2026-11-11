@@ -171,12 +171,7 @@ export function createReelsFeed({ supabase, getUser }) {
       mediaUrls.set(path, data.signedUrl);
       return data.signedUrl;
     }
-    const { data: publicData } = supabase.storage.from(REELS_BUCKET).getPublicUrl(path);
-    if (publicData?.publicUrl) {
-      mediaUrls.set(path, publicData.publicUrl);
-      return publicData.publicUrl;
-    }
-    throw error || new Error("Не удалось получить ссылку на файл.");
+    throw new Error(error?.message || "Не удалось создать временную ссылку на видео. Проверьте доступ к приватному Storage bucket reels.");
   }
 
   async function checkInteractionTables() {

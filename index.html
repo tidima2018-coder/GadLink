@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -83,7 +83,10 @@
         </button>
       </div>
       <div class="secret-video-frame">
-        <video id="secret-video" controls playsinline preload="metadata" aria-label="Видео-поздравление"></video>
+        <video id="secret-video" controls playsinline preload="metadata" aria-label="Видео-поздравление">
+          <source src="./assets/secret-video.mp4?v=2" type="video/mp4">
+        </video>
+        <p id="secret-video-status" class="secret-video-status" role="status" hidden></p>
       </div>
     </div>
   </dialog>
@@ -667,6 +670,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=9"></script>
 </body>
 </html>

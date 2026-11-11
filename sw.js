@@ -1,10 +1,10 @@
-const CACHE_NAME = "gadlink-static-v24";
+const CACHE_NAME = "gadlink-static-v27";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./confirm.html",
-  "./style.css?v=8",
-  "./app.js?v=6",
+  "./style.css?v=10",
+  "./app.js?v=9",
   "./js/auth.js",
   "./js/confirm.js",
   "./js/supabaseClient.js",
@@ -13,7 +13,7 @@ const APP_SHELL = [
   "./js/chat-background.js",
   "./js/friends-ui.js",
   "./js/friends.js",
-  "./js/reels.js?v=4",
+  "./js/reels.js?v=5",
   "./js/voice-calls.js",
   "./js/voice-rooms.js",
   "./manifest.webmanifest",
@@ -44,6 +44,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin ||
+      request.headers.has("range") || /\.(mp4|m4v|mov|webm|ogg)$/i.test(url.pathname) ||
       url.pathname.includes("/rest/") || url.pathname.includes("/auth/") ||
       url.pathname.includes("/storage/") || url.pathname.includes("/functions/")) return;
   if (request.mode === "navigate") {

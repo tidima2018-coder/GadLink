@@ -137,8 +137,10 @@ body {
 .secret-video-dialog__heading h2 { margin: 0; font-size: 20px; }
 .secret-video-dialog__heading button { display: grid; width: 38px; min-width: 38px; min-height: 38px; place-items: center; padding: 0; border-radius: 12px; }
 .secret-video-dialog__heading svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.secret-video-frame { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: #08080a; }
+.secret-video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: #08080a; }
 .secret-video-frame video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.secret-video-status { position: absolute; right: 16px; bottom: 56px; left: 16px; margin: 0; color: #ffd2da; font-size: 13px; text-align: center; text-shadow: 0 1px 5px #000; }
+.secret-video-status[hidden] { display: none; }
 .secret-video-dialog__panel:fullscreen,
 .secret-video-dialog.is-fullscreen-fallback .secret-video-dialog__panel {
   position: fixed;
@@ -178,6 +180,8 @@ body {
   background: #000;
   object-fit: cover;
 }
+.secret-video-dialog__panel:fullscreen .secret-video-frame,
+.secret-video-dialog.is-fullscreen-fallback .secret-video-frame { position: relative; }
 body::before {
   position: fixed;
   z-index: -1;

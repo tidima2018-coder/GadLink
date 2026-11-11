@@ -1,7 +1,7 @@
 import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames } from "./js/friends.js";
-import { createReelsFeed } from "./js/reels.js?v=4";
+import { createReelsFeed } from "./js/reels.js?v=5";
 import { createVoiceCallController } from "./js/voice-calls.js";
 import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
@@ -55,11 +55,30 @@ let conversationOverviewRefreshTimer = null;
 const byId = (id) => document.getElementById(id);
 const secretVideoDialog = byId("secret-video-dialog");
 const secretVideoPanel = secretVideoDialog.querySelector(".secret-video-dialog__panel");
+const secretVideo = byId("secret-video");
+const secretVideoStatus = byId("secret-video-status");
 const secretVideoOpen = byId("secret-video-open");
 let secretVideoFullscreenActive = false;
+secretVideo.addEventListener("error", () => {
+  const mediaError = secretVideo.error;
+  const details = mediaError
+    ? `Код ошибки видео: ${mediaError.code}.`
+    : "Проверьте, что видеофайл доступен.";
+  console.error("GadLink secret video could not load:", mediaError);
+  secretVideoStatus.textContent = `Не удалось загрузить видео. ${details}`;
+  secretVideoStatus.hidden = false;
+});
 secretVideoOpen.addEventListener("click", () => {
   secretVideoDialog.showModal();
   secretVideoDialog.classList.add("is-fullscreen-fallback");
+  secretVideoStatus.hidden = true;
+  if (secretVideo.ended) secretVideo.currentTime = 0;
+  if (secretVideo.error) secretVideo.load();
+  secretVideo.play().catch((error) => {
+    console.error("GadLink secret video playback:", error);
+    secretVideoStatus.textContent = `Не удалось запустить видео: ${error.message}`;
+    secretVideoStatus.hidden = false;
+  });
   if (typeof secretVideoPanel.requestFullscreen !== "function") return;
   try {
     secretVideoPanel.requestFullscreen().then(() => {
@@ -90,6 +109,7 @@ document.addEventListener("fullscreenchange", () => {
 });
 secretVideoDialog.addEventListener("close", () => {
   secretVideoFullscreenActive = false;
+  secretVideo.pause();
   if (document.fullscreenElement === secretVideoPanel) {
     document.exitFullscreen().catch((error) => {
       console.warn("GadLink could not exit secret video fullscreen:", error);
