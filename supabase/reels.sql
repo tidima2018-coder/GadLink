@@ -62,9 +62,13 @@ alter table public.reel_reposts enable row level security;
 alter table public.reel_comments enable row level security;
 alter table public.reel_posts enable row level security;
 
+grant select, insert, update, delete on public.reel_posts to authenticated;
+grant select, insert, delete on storage.objects to authenticated;
 grant select, insert, delete on public.reel_likes to authenticated;
 grant select, insert, delete on public.reel_saves to authenticated;
 grant select, insert, delete on public.reel_reposts to authenticated;
+create index if not exists reel_reposts_user_created_idx on public.reel_reposts (user_id, created_at desc);
+create index if not exists reel_reposts_path_created_idx on public.reel_reposts (reel_path, created_at desc);
 
 drop policy if exists "gadlink reels list files" on storage.objects;
 create policy "gadlink reels list files" on storage.objects
@@ -198,6 +202,10 @@ begin
     raise exception 'Публикация не найдена или принадлежит другому пользователю.' using errcode = '42501';
   end if;
 
+  delete from public.reel_likes where reel_path = any(v_media_paths);
+  delete from public.reel_saves where reel_path = any(v_media_paths);
+  delete from public.reel_reposts where reel_path = any(v_media_paths);
+  delete from public.reel_comments where reel_path = any(v_media_paths);
   delete from public.reel_posts where id = target_post_id and user_id = v_user_id;
   return v_media_paths;
 end

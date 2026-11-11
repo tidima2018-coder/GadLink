@@ -3,6 +3,7 @@ import { getPublicProfileNames } from "./friends.js";
 const REELS_BUCKET = "reels";
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)$/i;
 const MEDIA_EXTENSIONS = /\.(mp4|mov|webm|m4v|ogg|jpe?g|png|webp|gif|avif)$/i;
+const UUID_PATH_SEGMENT = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const MAX_MEDIA_FILES = 10;
 const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
@@ -1394,10 +1395,17 @@ export function createReelsFeed({ supabase, getUser }) {
       const availablePosts = uploadedPosts.filter((post) => post.media.every((item) => storedPaths.has(item.path)));
       const missingMediaCount = uploadedPosts.length - availablePosts.length;
       const postPaths = new Set(uploadedPosts.flatMap((post) => post.media.map((item) => item.path)));
-      // Loose Storage objects are legacy-only. With a working posts table they
-      // may be leftovers from a deletion and must not be resurrected in the feed.
-      const legacyFiles = (postsError ? storedFiles : [])
-        .filter((file) => file.type === "video" && !postPaths.has(file.path))
+      // Keep older videos that predate reel_posts. New uploads use
+      // <user UUID>/<post UUID>/<file>; unmatched files in that layout are
+      // leftovers from deleted or incomplete posts, so don't resurrect them.
+      const legacyFiles = storedFiles
+        .filter((file) => {
+          if (file.type !== "video" || postPaths.has(file.path)) return false;
+          if (postsError) return true;
+          const [ownerFolder, postFolder, fileName] = file.path.split("/");
+          return !(fileName && UUID_PATH_SEGMENT.test(ownerFolder || "") &&
+            UUID_PATH_SEGMENT.test(postFolder || ""));
+        })
         .map((file) => ({
           path: file.path,
           title: "",
