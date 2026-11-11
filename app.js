@@ -256,6 +256,12 @@ function showAuthError(message) {
   status.classList.add("auth-status--error");
 }
 
+function showAppStartupError(message) {
+  const status = byId("app-startup-status");
+  status.textContent = message;
+  status.hidden = !message;
+}
+
 function showApp(isSignedIn) {
   byId("auth-section").hidden = isSignedIn;
   byId("app").hidden = !isSignedIn;
@@ -263,6 +269,7 @@ function showApp(isSignedIn) {
   byId("add-contact-button").hidden = !isSignedIn;
   byId("sign-out").hidden = !isSignedIn;
   if (!isSignedIn) {
+    showAppStartupError("");
     setMenuOpen(false, false);
     setFriendDialogOpen(false, false);
     setCreateMenuOpen(false);
@@ -1287,6 +1294,7 @@ async function loadApp() {
     showApp(false);
     throw new Error("Сначала подтвердите адрес электронной почты.");
   }
+  showAppStartupError("");
   showApp(true);
   await chatBackgroundController.setUser(user.id);
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
@@ -1763,12 +1771,11 @@ byId("auth-form").addEventListener("submit", async (event) => {
     console.error("GadLink app initialization after sign-in:", error);
     const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
     showApp(confirmed);
-    setStatus(
-      "auth-status",
-      confirmed
-        ? `Вы вошли, но приложение загрузилось не полностью: ${error.message}`
-        : error.message
-    );
+    if (confirmed) {
+      showAppStartupError(`Вы вошли, но приложение загрузилось не полностью: ${error.message}`);
+    } else {
+      setStatus("auth-status", error.message);
+    }
   } finally {
     submitButton.disabled = false;
   }
@@ -1799,7 +1806,7 @@ byId("sign-up").addEventListener("click", async () => {
     if (confirmed) {
       console.error("GadLink app initialization after sign-up:", error);
       showApp(true);
-      setStatus("auth-status", `Аккаунт создан и выполнен вход, но приложение загрузилось не полностью: ${error.message}`);
+      showAppStartupError(`Аккаунт создан и выполнен вход, но приложение загрузилось не полностью: ${error.message}`);
     } else {
       setStatus("auth-status", getAuthErrorMessage(error));
     }
@@ -2340,12 +2347,11 @@ getCurrentUser().then(async (currentUser) => {
     console.error("GadLink app restoration:", error);
     const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
     showApp(confirmed);
-    setStatus(
-      "auth-status",
-      confirmed
-        ? `Вы вошли, но приложение загрузилось не полностью: ${error.message}`
-        : error.message
-    );
+    if (confirmed) {
+      showAppStartupError(`Вы вошли, но приложение загрузилось не полностью: ${error.message}`);
+    } else {
+      setStatus("auth-status", error.message);
+    }
   }
 }).catch((error) => {
   showApp(false);

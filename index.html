@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -109,6 +109,7 @@
     </section>
 
     <div id="app" hidden>
+      <p id="app-startup-status" class="app-startup-status" role="alert" aria-live="assertive" hidden></p>
       <nav aria-label="разделы">
         <button id="menu-toggle" type="button" aria-label="Открыть настройки" aria-expanded="false" aria-controls="profile-menu" hidden>
           <span></span><span></span><span></span>
@@ -670,6 +671,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=9"></script>
+  <script type="module" src="app.js?v=10"></script>
 </body>
 </html>
