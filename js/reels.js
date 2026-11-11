@@ -41,10 +41,86 @@ export function createReelsFeed({ supabase, getUser }) {
   let interactionsChannel = null;
   let interactionsOwnerId = null;
   let interactionRefreshTimer = null;
+  let deleteConfirmDialog = null;
+  let deleteConfirmResolver = null;
+  let deleteConfirmCloseTimer = null;
+  let reelToast = null;
+  let reelToastTimer = null;
 
   function setStatus(text, isError = false) {
     status.textContent = text;
     status.classList.toggle("is-error", isError);
+  }
+
+  function showToast(message, isError = false) {
+    if (!reelToast) {
+      reelToast = document.createElement("div");
+      reelToast.className = "reel-toast";
+      reelToast.setAttribute("role", isError ? "alert" : "status");
+      reelToast.setAttribute("aria-live", isError ? "assertive" : "polite");
+      document.getElementById("reels-section").append(reelToast);
+    }
+    window.clearTimeout(reelToastTimer);
+    reelToast.textContent = message;
+    reelToast.classList.toggle("is-error", isError);
+    reelToast.setAttribute("role", isError ? "alert" : "status");
+    reelToast.setAttribute("aria-live", isError ? "assertive" : "polite");
+    reelToast.classList.add("is-visible");
+    reelToastTimer = window.setTimeout(() => reelToast.classList.remove("is-visible"), 4200);
+  }
+
+  function finishDeleteConfirmation(confirmed) {
+    if (!deleteConfirmResolver) return;
+    const resolve = deleteConfirmResolver;
+    deleteConfirmResolver = null;
+    const dialog = deleteConfirmDialog;
+    dialog.classList.remove("is-open");
+    dialog.setAttribute("inert", "");
+    window.clearTimeout(deleteConfirmCloseTimer);
+    deleteConfirmCloseTimer = window.setTimeout(() => { dialog.hidden = true; }, 220);
+    resolve(confirmed);
+  }
+
+  function confirmPostDelete(title = "") {
+    if (!deleteConfirmDialog) {
+      const dialog = document.createElement("div");
+      dialog.className = "reel-delete-dialog";
+      dialog.hidden = true;
+      dialog.setAttribute("inert", "");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-labelledby", "reel-delete-title");
+      dialog.innerHTML = '<button type="button" class="reel-delete-dialog__backdrop" aria-label="Закрыть подтверждение"></button>' +
+        '<section class="reel-delete-dialog__panel">' +
+        '<span class="reel-delete-dialog__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></span>' +
+        '<h2 id="reel-delete-title">Удалить видео?</h2><p class="reel-delete-dialog__title"></p>' +
+        '<p>Видео и связанные с ним реакции будут удалены. Это действие нельзя отменить.</p>' +
+        '<div class="reel-delete-dialog__actions"><button type="button" class="reel-delete-dialog__cancel">Отмена</button>' +
+        '<button type="button" class="reel-delete-dialog__confirm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg><span>Удалить видео</span></button></div></section>';
+      dialog.querySelector(".reel-delete-dialog__backdrop").addEventListener("click", () => finishDeleteConfirmation(false));
+      dialog.querySelector(".reel-delete-dialog__cancel").addEventListener("click", () => finishDeleteConfirmation(false));
+      dialog.querySelector(".reel-delete-dialog__confirm").addEventListener("click", () => finishDeleteConfirmation(true));
+      dialog.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finishDeleteConfirmation(false);
+        }
+      });
+      document.body.append(dialog);
+      deleteConfirmDialog = dialog;
+    }
+    if (deleteConfirmResolver) return Promise.resolve(false);
+    const titleElement = deleteConfirmDialog.querySelector(".reel-delete-dialog__title");
+    titleElement.textContent = title ? "«" + title + "»" : "";
+    titleElement.hidden = !title;
+    deleteConfirmDialog.hidden = false;
+    deleteConfirmDialog.removeAttribute("inert");
+    window.clearTimeout(deleteConfirmCloseTimer);
+    requestAnimationFrame(() => {
+      deleteConfirmDialog?.classList.add("is-open");
+      deleteConfirmDialog?.querySelector(".reel-delete-dialog__cancel")?.focus();
+    });
+    return new Promise((resolve) => { deleteConfirmResolver = resolve; });
   }
 
   function userId() {
@@ -210,6 +286,49 @@ export function createReelsFeed({ supabase, getUser }) {
     const mediaState = { items, elements: [], index: 0 };
     const stage = document.createElement("div");
     stage.className = "reel-stage";
+    const moreButton = document.createElement("button");
+    moreButton.type = "button";
+    moreButton.className = "reel-more-button";
+    moreButton.textContent = "⋯";
+    moreButton.setAttribute("aria-label", "Действия с видео");
+    moreButton.setAttribute("aria-expanded", "false");
+    const moreMenu = document.createElement("div");
+    moreMenu.className = "reel-more-menu";
+    moreMenu.hidden = true;
+    const shareOption = document.createElement("button");
+    shareOption.type = "button";
+    shareOption.dataset.reelMenuAction = "share";
+    shareOption.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7.2 18-3.7-7.1L3 10.2 21 3Z"/><path d="m10.1 13.9 4.8-4.8"/></svg><span>Поделиться ссылкой</span>';
+    moreMenu.append(shareOption);
+    if (file.postId && file.userId === userId()) {
+      const deleteOption = document.createElement("button");
+      deleteOption.type = "button";
+      deleteOption.dataset.reelMenuAction = "delete";
+      deleteOption.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg><span>Удалить видео</span>';
+      moreMenu.append(deleteOption);
+    }
+    stage.append(moreButton, moreMenu);
+    moreButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      moreMenu.hidden = !moreMenu.hidden;
+      moreButton.setAttribute("aria-expanded", String(!moreMenu.hidden));
+    });
+    moreMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const option = event.target.closest("button[data-reel-menu-action]");
+      if (!option) return;
+      moreMenu.hidden = true;
+      moreButton.setAttribute("aria-expanded", "false");
+      if (option.dataset.reelMenuAction === "share") void share(path);
+      if (option.dataset.reelMenuAction === "delete") void deletePost(card, file, option);
+    });
+    stage.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !moreMenu.hidden) {
+        moreMenu.hidden = true;
+        moreButton.setAttribute("aria-expanded", "false");
+        moreButton.focus();
+      }
+    });
     items.forEach((item, index) => {
       const element = item.type === "image" ? document.createElement("img") : document.createElement("video");
       element.className = item.type === "image" ? "reel-image" : "reel-video";
@@ -252,14 +371,6 @@ export function createReelsFeed({ supabase, getUser }) {
       <button type="button" class="reel-action" data-action="save" data-db-action aria-label="Сохранить"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4V4.8Z"/></svg></span><small>Сохранить</small></button>
 
       <button type="button" class="reel-action" data-action="sound" aria-label="Включить звук"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path class="sound-wave" d="M16 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/><path class="sound-muted" d="m17 9 5 6m0-6-5 6"/></svg></span><small>Звук</small></button>`;
-
-    if (file.userId === userId() && (file.postId || file.id)) {
-      actions.insertAdjacentHTML("beforeend", `
-        <button type="button" class="reel-action reel-action--delete" data-action="delete" aria-label="Удалить публикацию">
-          <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></span>
-          <small>Удалить</small>
-        </button>`);
-    }
 
     actions.querySelectorAll("[data-db-action]").forEach((button) => {
       button.disabled = !interactionsReady;
@@ -496,7 +607,6 @@ export function createReelsFeed({ supabase, getUser }) {
       if (action === "repost") toggleRepost(card, path);
       if (action === "save") toggleSave(card, path);
       if (action === "share") share(path);
-      if (action === "delete") deletePost(card);
       if (action === "sound" && currentVideo()) toggleSound(currentVideo());
       if (action === "delete") deletePost(card, file, button);
     });
@@ -609,44 +719,71 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   }
 
-  async function deletePost(card) {
+  async function deletePost(card, post = null, button = null) {
+    const ownerId = userId();
     const postId = card.dataset.postId;
-    if (!postId || card.dataset.userId !== userId()) return;
-    if (!window.confirm("Удалить эту публикацию и все её фото или видео? Это действие нельзя отменить.")) return;
-    const button = card.querySelector('[data-action="delete"]');
-    if (button) button.disabled = true;
+    if (!ownerId || !postId || card.dataset.userId !== ownerId ||
+        (post?.id && post.id !== postId) || (post?.userId && post.userId !== ownerId)) return;
+    if (!(await confirmPostDelete(post?.title || ""))) return;
+
+    const deleteButton = button || card.querySelector('[data-reel-menu-action="delete"]');
+    if (deleteButton) deleteButton.disabled = true;
     try {
       const { data: paths, error } = await supabase.rpc("gadlink_delete_reel_post", { target_post_id: postId });
       if (error) throw error;
-      const mediaPaths = Array.isArray(paths) ? paths : [];
-      let storageError = null;
-      if (mediaPaths.length) {
-        try {
-          const result = await supabase.storage.from(REELS_BUCKET).remove(mediaPaths);
-          storageError = result.error;
-        } catch (error) {
-          storageError = error;
-        }
+      const mediaPaths = Array.isArray(paths) ? [...new Set(paths.filter((item) => typeof item === "string" && item))] : [];
+      if (!mediaPaths.length) throw new Error("Сервер не вернул файлы публикации.");
+
+      if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
+        activationId += 1;
+        pauseAll();
+        activePath = null;
+      }
+      if (mediaPaths.includes(commentsPath)) {
+        commentsPanel.hidden = true;
+        commentsPath = null;
       }
       observer?.unobserve(card);
-      card.querySelectorAll("video").forEach((video) => { video.pause(); video.removeAttribute("src"); video.load(); });
+      card.querySelectorAll("video").forEach((video) => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      });
       mediaPaths.forEach((mediaPath) => {
         cardsByPath.delete(mediaPath);
         mediaUrls.delete(mediaPath);
       });
+      card.classList.add("is-removing");
+      await new Promise((resolve) => window.setTimeout(resolve,
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : 240));
       card.remove();
-      if (activeVideo && !activeVideo.isConnected) activeVideo = null;
-      if (activePath && mediaPaths.includes(activePath)) activePath = null;
-      setStatus(storageError
-        ? `Публикация удалена, но часть медиа не удалена из хранилища: ${storageError.message}`
-        : "Публикация удалена.", Boolean(storageError));
+      setStatus(container.querySelector(".reel-card:not([hidden])") ? "" : "Публикаций больше нет.");
+      showToast("Видео удалено");
+
+      try {
+        const { data: remainingPosts, error: referenceError } = await supabase
+          .from("reel_posts")
+          .select("media_paths")
+          .overlaps("media_paths", mediaPaths);
+        if (referenceError) throw referenceError;
+        const referencedPaths = new Set((remainingPosts || []).flatMap((item) => item.media_paths || []));
+        const unusedPaths = mediaPaths.filter((mediaPath) => !referencedPaths.has(mediaPath));
+        if (unusedPaths.length) {
+          const { error: storageError } = await supabase.storage.from(REELS_BUCKET).remove(unusedPaths);
+          if (storageError) throw storageError;
+        }
+      } catch (storageError) {
+        console.error("GadLink Reel media cleanup:", storageError);
+        showToast("Видео удалено, но Storage не очищен: " + (storageError?.message || "не удалось проверить связанные публикации"), true);
+        setStatus("Видео удалено, но не все файлы удалось очистить: " + (storageError?.message || "ошибка Storage"), true);
+      }
     } catch (error) {
       console.error("GadLink Reels delete post:", error);
-      setStatus(`Не удалось удалить публикацию: ${error.message}`, true);
-      if (button) button.disabled = false;
+      showToast("Не удалось удалить видео: " + (error?.message || "ошибка Supabase"), true);
+      setStatus("Не удалось удалить видео: " + (error?.message || "ошибка Supabase"), true);
+      if (deleteButton) deleteButton.disabled = false;
     }
   }
-
   async function toggleSave(card, path) {
     if (!interactionsReady) return;
     const button = card.querySelector('[data-action="save"]');
@@ -756,57 +893,6 @@ export function createReelsFeed({ supabase, getUser }) {
   function pauseAll(except = null) {
     container.querySelectorAll("video").forEach((video) => { if (video !== except) video.pause(); });
     activeVideo = except;
-  }
-
-  async function deletePost(card, post, button) {
-    const ownerId = userId();
-    if (!post.id || !ownerId || post.userId !== ownerId) return;
-    if (!window.confirm("Удалить эту публикацию? Это действие нельзя отменить.")) return;
-
-    button.disabled = true;
-    const paths = post.media.map((item) => item.path);
-    try {
-      const { data, error } = await supabase.from("reel_posts")
-        .delete()
-        .eq("id", post.id)
-        .eq("user_id", ownerId)
-        .select("id")
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) throw new Error("Публикация не найдена или вы не являетесь её владельцем.");
-    } catch (error) {
-      console.error("GadLink Reel delete:", error);
-      setStatus(`Не удалось удалить публикацию: ${error.message}`, true);
-      button.disabled = false;
-      return;
-    }
-
-    if (card.dataset.path === activePath || (activeVideo && card.contains(activeVideo))) {
-      activationId += 1;
-      pauseAll();
-      activePath = null;
-    }
-    if (paths.includes(commentsPath)) {
-      commentsPanel.hidden = true;
-      commentsPath = null;
-    }
-    paths.forEach((path) => {
-      cardsByPath.delete(path);
-      mediaUrls.delete(path);
-    });
-    card.remove();
-    observeCards();
-    setStatus(container.querySelector(".reel-card:not([hidden])")
-      ? "Публикация удалена."
-      : "Публикация удалена. Пока больше публикаций нет.");
-
-    try {
-      const { error } = await supabase.storage.from(REELS_BUCKET).remove(paths);
-      if (error) throw error;
-    } catch (error) {
-      console.error("GadLink Reel media cleanup:", error);
-      setStatus(`Публикация удалена, но не удалось удалить её медиафайлы: ${error.message}`, true);
-    }
   }
 
   async function activateCard(card) {
