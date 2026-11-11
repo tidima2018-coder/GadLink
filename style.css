@@ -2677,54 +2677,58 @@ button.community-dialog__backdrop:active:not(:disabled) {
 #friends-section .friends-subsection .friend-item { margin: 0; }
 #friends-section .friends-subsection .friend-empty { margin: 0; }
 #friends-section #friends-list .friend-item {
-  min-height: 128px;
-  padding: 22px 28px;
-  border: 1px solid #353b56;
-  border-radius: 22px;
-  background: #1b2033;
-  color: #f3f5ff;
+  min-height: 82px;
+  padding: 12px 16px;
+  border: 1px solid rgba(222,140,152,.18);
+  border-radius: 17px;
+  background: linear-gradient(135deg, #242126, #1d1b20);
+  color: var(--text);
 }
-#friends-section #friends-list .friend-person { flex: 1 1 auto; gap: 28px; }
+#friends-section #friends-list { width: min(100%, 760px); }
+#friends-section #friends-list .friend-person { flex: 1 1 auto; gap: 16px; }
 #friends-section #friends-list .friend-avatar {
-  width: 80px;
-  height: 80px;
-  flex-basis: 80px;
-  color: #f3f5ff;
-  font-size: 26px;
+  width: 52px;
+  height: 52px;
+  flex-basis: 52px;
+  border: 1px solid rgba(239,163,173,.2);
+  color: #f8e9ec;
+  background: linear-gradient(145deg, #57434e, #332c36);
+  font-size: 18px;
 }
 #friends-section #friends-list .friend-username {
-  font-size: 20px;
+  color: #f4eef1;
+  font-size: 16px;
   font-weight: 600;
 }
 #friends-section #friends-list .friend-actions { flex: 0 0 auto; }
 #friends-section #friends-list .friend-actions button:first-child { display: none; }
 #friends-section #friends-list .friend-actions .friend-remove-button {
-  min-height: 48px;
-  padding: 0 18px;
+  min-height: 38px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border: 1px solid rgba(232, 78, 111, .55);
-  border-radius: 14px;
-  color: #f47e98;
-  background: rgba(93, 25, 43, .52);
-  font-size: 15px;
+  border: 1px solid rgba(222,140,152,.3);
+  border-radius: 12px;
+  color: #f0a8b4;
+  background: rgba(222,140,152,.09);
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
 #friends-section #friends-list .friend-remove-button:hover:not(:disabled) {
-  border-color: rgba(245, 100, 133, .78);
-  color: #ff9aaf;
-  background: rgba(116, 31, 53, .7);
+  border-color: rgba(239,163,173,.55);
+  color: #ffe0e5;
+  background: rgba(222,140,152,.17);
 }
 #friends-section #friends-list .friend-remove-button svg {
-  width: 19px;
-  height: 19px;
-  flex: 0 0 19px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
   fill: currentColor;
 }
-#friends-section > #friends-list .friend-empty { color: #adb5cd; }
+#friends-section > #friends-list .friend-empty { color: var(--muted); }
 
 @media (min-width: 721px) {
   #friends-section {
@@ -2750,24 +2754,24 @@ button.community-dialog__backdrop:active:not(:disabled) {
   #friends-section .friends-subsection > h3 { padding-bottom: 8px; }
   #friends-section #friends-list .friend-item {
     min-height: 0;
-    padding: 16px;
-    border-radius: 18px;
+    padding: 11px 12px;
+    border-radius: 15px;
   }
-  #friends-section #friends-list .friend-person { gap: 14px; }
+  #friends-section #friends-list .friend-person { gap: 11px; }
   #friends-section #friends-list .friend-avatar {
-    width: 56px;
-    height: 56px;
-    flex-basis: 56px;
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
   }
-  #friends-section #friends-list .friend-username { font-size: 16px; }
+  #friends-section #friends-list .friend-username { font-size: 15px; }
   #friends-section #friends-list .friend-actions {
     width: 100%;
     justify-content: flex-end;
   }
   #friends-section #friends-list .friend-actions .friend-remove-button {
-    min-height: 42px;
-    padding: 0 13px;
-    font-size: 13px;
+    min-height: 36px;
+    padding: 0 11px;
+    font-size: 12px;
   }
 }
 
