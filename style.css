@@ -1441,8 +1441,7 @@ main {
   box-shadow: 0 5px 18px rgba(222,120,137,.3);
   transition: transform .18s ease, box-shadow .18s ease;
 }
-#app:has(#chats-section:not([hidden])) > .add-contact-button,
-#app:has(#friends-section:not([hidden])) > .add-contact-button { display: grid; }
+#app:has(#chats-section:not([hidden])) > .add-contact-button { display: grid; }
 .add-contact-button:hover:not(:disabled) {
   color: #211417;
   background: #f094a4;
