@@ -19,11 +19,14 @@ const searchForm = document.getElementById("friend-search-form");
 const searchInput = document.getElementById("friend-search");
 const resultsBox = document.getElementById("friend-search-results");
 const requestsBox = document.getElementById("friend-requests");
-const friendsBox = document.getElementById("friends-list");
 const statusBox = document.getElementById("friend-status");
 const contactsFilter = document.getElementById("contacts-filter");
 const contactsList = document.getElementById("contacts-list");
 const contactsEmpty = document.getElementById("contacts-empty");
+const requestsToggle = document.getElementById("friend-requests-toggle");
+const requestsPanel = document.getElementById("friend-requests-panel");
+const requestsCount = document.getElementById("friend-requests-count");
+const navRequestsCount = document.getElementById("friend-requests-nav-count");
 
 if (
   section &&
@@ -32,8 +35,11 @@ if (
   searchInput &&
   resultsBox &&
   requestsBox &&
-  friendsBox &&
-  statusBox
+  statusBox &&
+  requestsToggle &&
+  requestsPanel &&
+  requestsCount &&
+  navRequestsCount
 ) {
   const state = {
     userId: null,
@@ -45,6 +51,56 @@ if (
   };
   let friendshipsChannel = null;
   let friendshipsChannelUserId = null;
+  let friendshipsSessionVersion = 0;
+  let friendshipsChannelTransition = Promise.resolve();
+  let friendsRefreshTimer = null;
+
+  function updateIncomingRequestBadges(count) {
+    const label = count > 99 ? "99+" : String(count);
+    requestsCount.textContent = label;
+    navRequestsCount.textContent = label;
+    requestsCount.hidden = count === 0;
+    navRequestsCount.hidden = count === 0;
+    requestsToggle.setAttribute(
+      "aria-label",
+      count ? `Заявки в друзья: ${count}` : "Заявки в друзья"
+    );
+  }
+
+  function scheduleFriendsRefresh() {
+    clearTimeout(friendsRefreshTimer);
+    friendsRefreshTimer = setTimeout(() => {
+      friendsRefreshTimer = null;
+      if (!friendshipsChannelUserId) return;
+      void refreshFriends();
+    }, 120);
+  }
+
+  function enqueueFriendshipsChannelTransition(transition) {
+    friendshipsChannelTransition = friendshipsChannelTransition
+      .catch((error) => console.error("GadLink friendships channel cleanup:", error))
+      .then(transition);
+  }
+
+  function setRequestsPanelOpen(open) {
+    requestsPanel.hidden = !open;
+    requestsToggle.setAttribute("aria-expanded", String(open));
+  }
+
+  requestsToggle.addEventListener("click", () => {
+    setRequestsPanelOpen(requestsPanel.hidden);
+  });
+  document.addEventListener("click", (event) => {
+    if (!requestsPanel.hidden && !(event.target instanceof Element && event.target.closest(".friend-requests-menu"))) {
+      setRequestsPanelOpen(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !requestsPanel.hidden) {
+      setRequestsPanelOpen(false);
+      requestsToggle.focus();
+    }
+  });
 
   // Стили раздела друзей
   const style = document.createElement("style");
@@ -237,13 +293,13 @@ if (
     const query = (contactsFilter?.value || "").trim().toLocaleLowerCase();
     const friends = state.links
       .filter((link) => link.status === "accepted")
-      .map((link) => profileFor(otherId(link)))
-      .filter((profile) => (profile.username || "Пользователь").toLocaleLowerCase().includes(query))
-      .sort((a, b) => (a.username || "").localeCompare(b.username || "", "ru"));
+      .map((link) => ({ link, profile: profileFor(otherId(link)) }))
+      .filter(({ profile }) => (profile.username || "Пользователь").toLocaleLowerCase().includes(query))
+      .sort((a, b) => (a.profile.username || "").localeCompare(b.profile.username || "", "ru"));
 
     contactsList.replaceChildren();
     contactsEmpty.hidden = friends.length > 0;
-    for (const profile of friends) {
+    for (const { link, profile } of friends) {
       const row = document.createElement("article");
       row.className = "contact-row";
       const identity = document.createElement("div");
@@ -285,7 +341,24 @@ if (
         }));
       });
 
-      row.append(identity, chatButton);
+      const removeButton = createButton("Удалить из друзей", async () => {
+        await removeFriend(link.id);
+        await refreshFriends();
+        setStatus("Пользователь удалён из друзей.");
+      });
+      removeButton.className = "contact-remove-button";
+      const trashIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      trashIcon.setAttribute("viewBox", "0 0 24 24");
+      trashIcon.setAttribute("aria-hidden", "true");
+      const trashPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      trashPath.setAttribute("d", "M8 3h8l1 2h4v2H3V5h4l1-2Zm-3 6h14l-1 12H6L5 9Zm4 2v8h2v-8H9Zm4 0v8h2v-8h-2Z");
+      trashIcon.append(trashPath);
+      removeButton.prepend(trashIcon);
+
+      const actions = document.createElement("div");
+      actions.className = "contact-actions";
+      actions.append(chatButton, removeButton);
+      row.append(identity, actions);
       contactsList.append(row);
     }
   }
@@ -293,17 +366,13 @@ if (
   // Входящие заявки и список друзей
   function renderRequestsAndFriends() {
     requestsBox.replaceChildren();
-    friendsBox.replaceChildren();
 
     const incoming = state.links.filter(
       link =>
         link.status === "pending" &&
         link.addressee_id === state.userId
     );
-
-    const friends = state.links.filter(
-      link => link.status === "accepted"
-    );
+    updateIncomingRequestBadges(incoming.length);
 
     renderContacts();
 
@@ -335,40 +404,6 @@ if (
       empty(requestsBox, "Новых заявок пока нет.");
     }
 
-    // Список друзей
-    for (const link of friends) {
-      const friend = profileFor(otherId(link));
-      const message = createButton("Написать", () => {
-        window.dispatchEvent(new CustomEvent("gadlink:open-contact-chat", {
-          detail: { userId: friend.id, username: friend.username || "Пользователь" }
-        }));
-      });
-      const remove = createButton(
-        "Удалить из друзей",
-        async () => {
-          await removeFriend(link.id);
-          await refreshFriends();
-
-          setStatus("Пользователь удалён из друзей.");
-        }
-      );
-      remove.classList.add("friend-remove-button");
-      remove.insertAdjacentHTML(
-        "afterbegin",
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm-3 6h14l-1 12H6L5 9Zm4 2v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg>'
-      );
-
-      friendsBox.append(
-        personCard(
-          friend,
-          [message, remove]
-        )
-      );
-    }
-
-    if (!friends.length) {
-      empty(friendsBox, "Здесь появятся ваши друзья.");
-    }
   }
 
   // Результаты поиска
@@ -436,6 +471,7 @@ if (
       return;
     }
 
+    const sessionVersion = friendshipsSessionVersion;
     state.loading = true;
 
     try {
@@ -444,13 +480,15 @@ if (
         error: userError
       } = await supabase.auth.getUser();
 
+      if (sessionVersion !== friendshipsSessionVersion) return;
       if (userError || !user) {
         state.userId = null;
         state.links = [];
         state.searchResults = [];
+        updateIncomingRequestBadges(0);
+        setRequestsPanelOpen(false);
 
         requestsBox.replaceChildren();
-        friendsBox.replaceChildren();
         resultsBox.replaceChildren();
 
         setStatus("Сначала войдите в аккаунт GadLink.");
@@ -472,13 +510,16 @@ if (
         });
 
       if (error) throw error;
-      if (state.userId !== user.id) return;
+      if (sessionVersion !== friendshipsSessionVersion || state.userId !== user.id) return;
 
       state.links = links || [];
+      updateIncomingRequestBadges(state.links.filter(
+        (link) => link.status === "pending" && link.addressee_id === user.id
+      ).length);
 
       const ids = [...new Set(state.links.map(otherId))];
       state.profileById = await getPublicProfileNames(ids);
-      if (state.userId !== user.id) return;
+      if (sessionVersion !== friendshipsSessionVersion || state.userId !== user.id) return;
 
       renderRequestsAndFriends();
       renderSearch();
@@ -486,6 +527,7 @@ if (
       setStatus("");
 
     } catch (error) {
+      if (sessionVersion !== friendshipsSessionVersion) return;
       console.error("GadLink friends:", error);
 
       setStatus(
@@ -503,39 +545,62 @@ if (
 
   supabase.auth.onAuthStateChange((_event, session) => {
     const userId = session?.user?.id || null;
-    if (friendshipsChannelUserId === userId) return;
-    if (friendshipsChannel) void supabase.removeChannel(friendshipsChannel);
+    if (friendshipsChannelUserId === userId) {
+      if (userId) scheduleFriendsRefresh();
+      return;
+    }
+    const sessionVersion = ++friendshipsSessionVersion;
+    const previousChannel = friendshipsChannel;
     friendshipsChannel = null;
     friendshipsChannelUserId = userId;
     state.userId = userId;
     state.links = [];
     state.profileById.clear();
+    clearTimeout(friendsRefreshTimer);
+    friendsRefreshTimer = null;
+    setRequestsPanelOpen(false);
+    renderRequestsAndFriends();
+    resultsBox.replaceChildren();
     if (!userId) {
-      renderRequestsAndFriends();
-      resultsBox.replaceChildren();
+      enqueueFriendshipsChannelTransition(async () => {
+        if (previousChannel) await supabase.removeChannel(previousChannel);
+      });
       return;
     }
 
-    friendshipsChannel = supabase
-      .channel(`friendships-${userId}`)
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "friendships"
-      }, (payload) => {
-        const row = payload.new || payload.old;
-        if (row?.requester_id === userId || row?.addressee_id === userId) {
-          void refreshFriends();
-        }
-      })
-      .subscribe((status, error) => {
-        if (status === "SUBSCRIBED") {
-          void refreshFriends();
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.error("GadLink friendships Realtime:", error || status);
-          setStatus("Не удалось подключить обновление друзей. Данные обновятся при возвращении в раздел.");
-        }
-      });
+    const activateFriendshipsChannel = () => {
+      if (sessionVersion !== friendshipsSessionVersion || friendshipsChannelUserId !== userId) return;
+      friendshipsChannel = supabase
+        .channel(`friendships-${userId}`)
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "friendships"
+        }, () => {
+          // DELETE payloads may contain only the primary key under RLS. Always
+          // reload the user's visible rows instead of inspecting old/new data.
+          if (sessionVersion === friendshipsSessionVersion) scheduleFriendsRefresh();
+        })
+        .subscribe((status, error) => {
+          if (sessionVersion !== friendshipsSessionVersion) return;
+          if (status === "SUBSCRIBED") {
+            scheduleFriendsRefresh();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.error("GadLink friendships Realtime:", error || status);
+            setStatus("Соединение с обновлениями друзей прервано. Данные синхронизируются после восстановления связи.");
+          }
+        });
+    };
+
+    enqueueFriendshipsChannelTransition(async () => {
+      if (previousChannel) await supabase.removeChannel(previousChannel);
+      activateFriendshipsChannel();
+    });
+  });
+
+  window.addEventListener("online", scheduleFriendsRefresh);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") scheduleFriendsRefresh();
   });
 
   // Поиск пользователей

@@ -96,15 +96,24 @@
       <img class="auth-logo" src="./assets/gadlink-icon-192.png" alt="GadLink">
       <p class="auth-intro">Общайтесь и оставайтесь на связи</p>
       <h2>вход и регистрация</h2>
-      <form id="auth-form">
+      <form id="auth-form" autocomplete="off">
         <label for="auth-email">почта</label>
         <input id="auth-email" type="email" autocomplete="email" placeholder="name@example.com" required>
         <label for="auth-password">пароль</label>
-        <input id="auth-password" type="password" autocomplete="current-password" placeholder="Введите пароль" minlength="6" required>
+        <input id="auth-password" type="password" autocomplete="new-password" placeholder="Введите пароль" minlength="6" required>
         <button type="submit">войти</button>
         <button id="sign-up" type="button">зарегистрироваться</button>
       </form>
-      <p id="auth-status" role="status"></p>
+      <div id="auth-status" role="status" aria-live="polite" hidden></div>
+      <div id="auth-success" class="auth-success" role="status" aria-live="polite" hidden>
+        <div class="auth-success__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"></rect><path d="m4.5 7 7.5 6 7.5-6"></path></svg>
+        </div>
+        <div class="auth-notice__content">
+          <h3>Подтверди почту</h3>
+          <p class="auth-success__message">Аккаунт создан. Перейди по ссылке из письма, чтобы завершить регистрацию</p>
+        </div>
+      </div>
       <button id="resend-confirmation" type="button" hidden>отправить письмо повторно</button>
     </section>
 
@@ -127,9 +136,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           <span>Добавить</span>
         </button>
-        <button type="button" data-section="friends-section" aria-label="Контакты">
+        <button type="button" data-section="friends-section" aria-label="Друзья">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0Z"/></svg>
-          <span>Контакты</span>
+          <span>Друзья</span>
+          <span id="friend-requests-nav-count" class="nav-friends-count" aria-live="polite" hidden></span>
         </button>
         <button type="button" data-section="calls-section" aria-label="Звонки">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13.7 10.3 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-2-1.8 2.2a14.5 14.5 0 0 1-6.4-6.4L10 9Z"/></svg>
@@ -350,27 +360,32 @@
       </section>
 
 <section id="friends-section" class="page-section" hidden>
-  <h2>Друзья</h2>
+  <div class="friends-header">
+    <h2>Друзья</h2>
+    <div class="friend-requests-menu">
+      <button id="friend-requests-toggle" class="friend-requests-toggle" type="button" aria-label="Заявки в друзья" aria-expanded="false" aria-controls="friend-requests-panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V21"/><circle cx="9.5" cy="7" r="4"/><path d="M19 8v6m-3-3h6"/></svg>
+        <span id="friend-requests-count" class="friend-requests-count" aria-live="polite" hidden></span>
+      </button>
+      <div id="friend-requests-panel" class="friend-requests-panel" hidden>
+        <section class="friends-subsection" aria-labelledby="friend-requests-title">
+          <h3 id="friend-requests-title">Заявки в друзья</h3>
+          <div id="friend-requests"></div>
+        </section>
+      </div>
+    </div>
+  </div>
 
   <div class="contacts-panel">
     <label class="contacts-search" for="contacts-filter">
       <span aria-hidden="true">⌕</span>
       <input id="contacts-filter" type="search" placeholder="Поиск" autocomplete="off">
     </label>
-    <h3>Контакты</h3>
-    <p id="contacts-empty" class="contacts-empty" hidden>Контакты не найдены.</p>
+    <h3>Друзья</h3>
+    <p id="contacts-empty" class="contacts-empty" hidden>Друзья не найдены.</p>
     <div id="contacts-list" class="contacts-list" aria-live="polite"></div>
   </div>
 
-  <section class="friends-subsection" aria-labelledby="friend-requests-title">
-    <h3 id="friend-requests-title">Заявки в друзья</h3>
-    <div id="friend-requests"></div>
-  </section>
-
-  <section class="friends-subsection" aria-labelledby="friends-list-title">
-    <h3 id="friends-list-title">Мои друзья</h3>
-    <div id="friends-list"></div>
-  </section>
 </section>
       <section id="communities-section" class="page-section" hidden>
         <header class="communities-header">
@@ -450,7 +465,7 @@
       </div>
       <div id="create-menu" class="create-menu" role="menu" aria-label="Создать" hidden>
         <button type="button" role="menuitem" data-create-action="channel"><span aria-hidden="true">#</span>Создать канал</button>
-        <button type="button" role="menuitem" data-create-action="contact"><span aria-hidden="true">＋</span>Добавить контакт</button>
+        <button type="button" role="menuitem" data-create-action="contact"><span aria-hidden="true">＋</span>Добавить друга</button>
       </div>
       <button id="add-contact-button" class="add-contact-button" type="button" aria-label="Создать канал или добавить контакт" aria-expanded="false" aria-controls="create-menu" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -654,10 +669,10 @@
   </div>
 
   <div id="friend-add-dialog" class="friend-add-dialog" role="dialog" aria-modal="true" aria-labelledby="friend-add-title" hidden inert>
-    <button class="friend-add-dialog__backdrop" type="button" aria-label="Закрыть поиск контактов"></button>
+    <button class="friend-add-dialog__backdrop" type="button" aria-label="Закрыть поиск друзей"></button>
     <section class="friend-add-dialog__panel">
       <div class="friend-add-dialog__heading">
-        <h2 id="friend-add-title">Добавить контакт</h2>
+        <h2 id="friend-add-title">Добавить друга</h2>
         <button id="friend-add-close" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       </div>
       <p class="friend-add-dialog__hint">Найдите человека по нику и отправьте заявку в друзья.</p>
