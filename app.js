@@ -1,4 +1,4 @@
-import "./js/friends-ui.js";
+import "./js/friends-ui.js?v=2";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames, resolveAvatarUrl } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js?v=5";
@@ -561,7 +561,7 @@ async function saveProfile({ username, about, avatarUrl, avatarFile }) {
     .from("profiles")
     .update({ username, about, avatar_url: avatarUrl })
     .eq("id", user.id)
-    .select("id")
+    .select("id,about")
     .maybeSingle();
   if (profileError || !savedProfile) {
     if (uploadedPath) {
@@ -576,7 +576,7 @@ async function saveProfile({ username, about, avatarUrl, avatarFile }) {
     const { error: removeError } = await supabase.storage.from("avatars").remove([previousAvatarPath]);
     if (removeError) console.error("GadLink previous avatar cleanup:", removeError);
   }
-  return profile;
+  return { ...profile, about: savedProfile.about ?? "" };
 }
 
 function syncProfileFields(profile) {
