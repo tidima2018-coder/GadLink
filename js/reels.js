@@ -59,11 +59,13 @@ export function createReelsFeed({ supabase, getUser }) {
   let reelToastTimer = null;
 
   function setStatus(text, isError = false) {
-    status.textContent = text;
-    status.classList.toggle("is-error", isError);
+    status.textContent = "";
+    status.classList.remove("is-error");
+    if (isError) window.dispatchEvent(new CustomEvent("gadlink:activity-error", { detail: { message: text } }));
   }
 
   function showToast(message, isError = false) {
+    if (!isError) return;
     if (!reelToast) {
       reelToast = document.createElement("div");
       reelToast.className = "reel-toast";

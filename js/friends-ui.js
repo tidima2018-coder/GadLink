@@ -88,8 +88,10 @@ if (
   }
 
   requestsToggle.addEventListener("click", () => {
+    window.dispatchEvent(new CustomEvent("gadlink:friend-requests-open"));
     setRequestsPanelOpen(requestsPanel.hidden);
   });
+  window.addEventListener("gadlink:friend-add-open", () => setRequestsPanelOpen(false));
   document.addEventListener("click", (event) => {
     if (!requestsPanel.hidden && !(event.target instanceof Element && event.target.closest(".friend-requests-menu"))) {
       setRequestsPanelOpen(false);
@@ -186,7 +188,8 @@ if (
   document.head.append(style);
 
   function setStatus(message) {
-    statusBox.textContent = message;
+    statusBox.textContent = "";
+    if (message) window.dispatchEvent(new CustomEvent("gadlink:activity-error", { detail: { message } }));
   }
 
   // Создание кнопки

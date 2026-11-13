@@ -1516,11 +1516,36 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   async function subscribeInbox(ownerId) {
     if (inboxSubscriptionPromise) await inboxSubscriptionPromise;
     if (inboxChannel && inboxChannelOwnerId === ownerId) {
-      if (inboxChannelReady) await syncPendingIncomingCalls(ownerId);
-      // Keep Supabase's channel so its websocket reconnect can restore the subscription.
-      return;
+      if (inboxChannelReady) {
+        await syncPendingIncomingCalls(ownerId);
+        return;
+      }
+      // A failed or timed-out channel is not reusable. Remove it so a later
+      // focus/online/session restore can create a fresh subscription.
+      const staleChannel = inboxChannel;
+      inboxChannel = null;
+      inboxChannelOwnerId = null;
+      inboxChannelReady = false;
+      await supabase.removeChannel(staleChannel);
     }
     if (inboxChannel) await supabase.removeChannel(inboxChannel);
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    const session = sessionData?.session;
+    if (sessionError || !session?.access_token || session.user?.id !== ownerId) {
+      const reason = sessionError?.message || "No active session for the current user";
+      console.error("GadLink voice inbox Realtime auth:", sessionError || reason);
+      setStatus(`Не удалось подключить приём звонков: ${reason}`);
+      return;
+    }
+    // Private channel authorization checks the user's JWT against
+    // realtime.messages RLS. Set the current refreshed session token before join.
+    try {
+      await supabase.realtime.setAuth(session.access_token);
+    } catch (error) {
+      console.error("GadLink voice inbox Realtime auth:", error);
+      setStatus(`Не удалось подключить приём звонков: ${error.message || "Realtime authorization failed"}`);
+      return;
+    }
     const channel = supabase.channel(`voice-inbox:${ownerId}`, { config: { private: true } });
     inboxChannel = channel;
     inboxChannelOwnerId = ownerId;
@@ -1579,6 +1604,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         settled = true;
         setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
         resolve(false);
+        if (inboxChannel === channel) {
+          inboxChannel = null;
+          inboxChannelOwnerId = null;
+          inboxChannelReady = false;
+          void supabase.removeChannel(channel);
+        }
       }, 10_000);
       channel.subscribe((status, error) => {
         if (inboxChannel !== channel) return;
@@ -1592,10 +1623,16 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
             void syncPendingIncomingCalls(ownerId);
             void refreshHistory();
           }
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           inboxChannelReady = false;
           console.error("GadLink voice inbox Realtime:", error || status);
-          setStatus("Не удалось подключить приём звонков. Проверьте Supabase Realtime.");
+          const reason = error?.message || error?.reason || status;
+          setStatus(`Не удалось подключить приём звонков: ${reason}`);
+          if (inboxChannel === channel) {
+            inboxChannel = null;
+            inboxChannelOwnerId = null;
+            void supabase.removeChannel(channel);
+          }
           if (!settled) {
             settled = true;
             clearTimeout(timeout);
@@ -1713,12 +1750,15 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
       void Promise.all([subscribeInbox(getUser().id), refreshHistory()]);
     }
   });
+  const restoreVoiceInbox = () => {
+    const ownerId = getUser()?.id;
+    if (!ownerId || initialisedUserId !== ownerId) return;
+    void Promise.all([subscribeInbox(ownerId), refreshHistory()]);
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" &&
-        getUser()?.id && initialisedUserId === getUser().id) {
-      void Promise.all([subscribeInbox(getUser().id), refreshHistory()]);
-    }
+    if (document.visibilityState === "visible") restoreVoiceInbox();
   });
+  window.addEventListener("focus", restoreVoiceInbox);
   window.addEventListener("beforeunload", () => {
     if (!activeCall) return;
     for (const track of activeCall.localStream?.getTracks() || []) track.stop();
@@ -1727,5 +1767,15 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   renderRingtoneList();
   void loadRingtoneLibrary();
 
-  return { initialize, shutdown, startCall, refreshHistory, resumeIncomingCall };
+  return {
+    initialize,
+    shutdown,
+    startCall,
+    refreshHistory,
+    resumeIncomingCall,
+    syncIncomingCalls: () => {
+      const ownerId = getUser()?.id;
+      return ownerId ? syncPendingIncomingCalls(ownerId) : Promise.resolve();
+    }
+  };
 }

@@ -273,9 +273,16 @@
 
   <script type="module">
     const params = new URLSearchParams(location.search);
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    for (const [key, value] of hashParams) {
+      if (!params.has(key)) params.set(key, value);
+    }
 
     let tokenHash = params.get("token_hash");
     const tokenType = params.get("type");
+    const validTokenType = ["signup", "email"].includes(tokenType);
+    const callbackError = params.has("error") || params.has("error_code");
+    const hasConfirmationCallback = Boolean(tokenHash || tokenType || callbackError);
 
     const symbol = document.getElementById("symbol");
     const title = document.getElementById("title");
@@ -313,7 +320,9 @@
         "Если ссылка истекла, запроси новое письмо на странице входа.";
     }
 
-    if (!tokenHash || tokenType !== "email") {
+    if (!hasConfirmationCallback) {
+      window.location.replace("./");
+    } else if (!tokenHash || !validTokenType) {
       showError(
         "Ссылка подтверждения отсутствует или недействительна. " +
         "Открой последнее письмо от GadLink и перейди по ссылке."
@@ -321,7 +330,7 @@
     }
 
     confirmButton.addEventListener("click", async () => {
-      if (!tokenHash || tokenType !== "email") return;
+      if (!tokenHash || !validTokenType) return;
 
       confirmButton.disabled = true;
       confirmButton.textContent = "Подтверждаем...";
@@ -342,7 +351,7 @@
 
         const { error } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
-          type: "email"
+          type: tokenType
         });
 
         if (error) throw error;

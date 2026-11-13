@@ -40,7 +40,6 @@ let reelsController = null;
 let menuCloseTimer = null;
 let menuAnimationFrame = null;
 let friendDialogCloseTimer = null;
-let avatarPreviewUrl = null;
 let profileAvatarPreviewUrl = null;
 let communityDialogOpener = null;
 let serverPhotoPreviewUrl = null;
@@ -57,6 +56,30 @@ let conversationOverviewRequestVersion = 0;
 let conversationOverviewRefreshTimer = null;
 
 const byId = (id) => document.getElementById(id);
+const appErrorToast = document.createElement("div");
+appErrorToast.className = "app-error-toast";
+appErrorToast.setAttribute("role", "alert");
+appErrorToast.setAttribute("aria-live", "assertive");
+appErrorToast.hidden = true;
+document.body.append(appErrorToast);
+
+function isRealErrorMessage(message) {
+  const lower = String(message || "").toLocaleLowerCase();
+  const russianErrors = ["\u043d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c", "\u043e\u0448\u0438\u0431", "\u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434", "\u0432\u0432\u0435\u0434\u0438\u0442\u0435", "\u0432\u043e\u0439\u0434\u0438\u0442\u0435", "\u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435", "\u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435", "\u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f", "\u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d", "\u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447", "\u043d\u0435\u0432\u0435\u0440", "\u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436", "\u043d\u0435 \u043f\u043e\u043b\u0443\u0447", "\u043d\u0435 \u0441\u0440\u0430\u0431\u043e\u0442", "\u043d\u0435\u0442 \u043f\u0440\u0430\u0432", "\u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f", "\u043f\u0440\u0435\u0440\u0432\u0430\u043d", "\u0437\u0430\u0431\u043b\u043e\u043a", "\u0438\u0441\u0442\u0435\u043a", "\u0438\u0441\u0442\u0435\u043a\u043b", "\u0430\u043a\u043a\u0430\u0443\u043d\u0442 \u0438\u0437\u043c\u0435\u043d\u0438\u043b\u0441\u044f", "\u043d\u0443\u0436\u0435\u043d https"];
+  return /error|failed|failure|denied|invalid|violation|duplicate|permission|network|timeout|not found|missing|expired|unauthorized|forbidden|cannot|could not|unable to|failed to fetch|pgrst|sqlstate|security policy|constraint/i.test(lower) || russianErrors.some((marker) => lower.includes(marker));
+}
+
+function showAppErrorToast(message) {
+  const text = String(message || "").trim();
+  if (!text || !isRealErrorMessage(text)) return;
+  appErrorToast.replaceChildren(document.createTextNode(text));
+  appErrorToast.hidden = false;
+  addStatusDismissButton(appErrorToast);
+}
+
+window.addEventListener("gadlink:activity-error", (event) => {
+  showAppErrorToast(event.detail?.message);
+});
 const secretVideoDialog = byId("secret-video-dialog");
 const secretVideoPanel = secretVideoDialog.querySelector(".secret-video-dialog__panel");
 const secretVideo = byId("secret-video");
@@ -139,12 +162,45 @@ const pushController = createPushNotifications({
 const chatBackgroundController = createChatBackgroundSettings({
   getUser: () => user
 });
+function addStatusDismissButton(status) {
+  if (!status.textContent.trim() || status.querySelector(".notice-dismiss")) return;
+
+  status.classList.add("notice-dismissible");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "notice-dismiss";
+  button.setAttribute("aria-label", "Закрыть уведомление");
+  button.title = "Закрыть";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  const cross = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  cross.setAttribute("d", "M6 6l12 12M18 6 6 18");
+  icon.append(cross);
+  button.append(icon);
+  button.addEventListener("click", () => {
+    status.hidden = true;
+    status.classList.remove("notice-dismissible");
+  });
+  status.append(button);
+}
+
 const setStatus = (id, message) => {
   const status = byId(id);
-  if (id === "auth-status") status.classList.remove("auth-status--error");
-  status.textContent = message;
+  const text = String(message || "").trim();
+  if (id === "auth-status") {
+    status.classList.remove("auth-status--error", "auth-status--unconfirmed", "auth-status--registered");
+    byId("auth-success").hidden = true;
+  }
+  status.replaceChildren();
+  if (!text || !isRealErrorMessage(text)) {
+    status.hidden = true;
+    return;
+  }
+  status.hidden = false;
+  if (id === "auth-status") status.classList.add("auth-status--error");
+  showAppErrorToast(text);
 };
-
 function setMenuOpen(isOpen, restoreFocus = true) {
   const menu = byId("profile-menu");
   const toggle = byId("menu-toggle");
@@ -162,7 +218,7 @@ function setMenuOpen(isOpen, restoreFocus = true) {
       menu.classList.add("is-open");
       menuAnimationFrame = null;
     });
-    byId("profile-menu").querySelector('[data-section="profile-section"]').focus();
+    byId("profile-menu").querySelector('[data-section="settings-section"]').focus();
     return;
   }
 
@@ -236,34 +292,44 @@ function setFriendDialogOpen(isOpen, restoreFocus = true) {
   }, 200);
 }
 
-function setCreateMenuOpen(isOpen) {
-  const menu = byId("create-menu");
-  const toggle = byId("add-contact-button");
-  menu.hidden = !isOpen;
-  toggle.setAttribute("aria-expanded", String(isOpen));
-  toggle.setAttribute("aria-label", isOpen ? "Закрыть меню создания" : "Создать канал или добавить контакт");
-  if (isOpen) menu.querySelector('[role="menuitem"]')?.focus();
-}
-
-function updateMenuAvatar(url) {
-  const preview = byId("menu-avatar-preview");
-  preview.hidden = !url;
-  if (url) preview.src = url;
-  byId("menu-avatar-placeholder").hidden = Boolean(url);
-}
-
 function showAuthError(message) {
   const status = byId("auth-status");
   status.classList.remove("auth-status--error");
-  status.textContent = message;
+  status.classList.remove("auth-status--unconfirmed");
+  status.classList.remove("auth-status--registered");
+  status.hidden = false;
+  byId("auth-success").hidden = true;
+  status.replaceChildren();
+  const unconfirmedEmail = message.includes("Почта ещё не подтверждена");
+  if (unconfirmedEmail) {
+    const icon = document.createElement("span");
+    icon.className = "auth-error__icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "!";
+    const content = document.createElement("div");
+    content.className = "auth-notice__content";
+    const title = document.createElement("strong");
+    title.className = "auth-error__title";
+    title.textContent = "Почта ещё не подтверждена";
+    const detail = document.createElement("span");
+    detail.className = "auth-error__message";
+    detail.textContent = "Проверь письмо от GadLink, подтверди почту и попробуй войти снова";
+    content.append(title, detail);
+    status.append(icon, content);
+  } else {
+    status.textContent = message;
+  }
   void status.offsetWidth;
   status.classList.add("auth-status--error");
+  if (unconfirmedEmail) status.classList.add("auth-status--unconfirmed");
+  addStatusDismissButton(status);
 }
 
 function showAppStartupError(message) {
   const status = byId("app-startup-status");
   status.textContent = message;
   status.hidden = !message;
+  if (message) addStatusDismissButton(status);
 }
 
 function showApp(isSignedIn) {
@@ -276,7 +342,6 @@ function showApp(isSignedIn) {
     showAppStartupError("");
     setMenuOpen(false, false);
     setFriendDialogOpen(false, false);
-    setCreateMenuOpen(false);
   }
 }
 
@@ -423,16 +488,10 @@ function syncProfileFields(profile) {
   currentAvatarUrl = profile.avatar_url;
   byId("profile-username").value = profile.username;
   byId("profile-about").value = profile.about;
-  byId("profile-avatar").value = profile.avatar_url || "";
   updateProfileAvatarPreview(profile.avatar_url);
-  byId("menu-profile-username").value = profile.username;
-  byId("profile-menu-name").textContent = currentUsername;
-  updateMenuAvatar(profile.avatar_url);
-  if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
-  avatarPreviewUrl = null;
+  byId("settings-profile-name").textContent = currentUsername;
   if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
   profileAvatarPreviewUrl = null;
-  byId("menu-avatar-file").value = "";
 }
 
 async function loadProfile() {
@@ -441,14 +500,11 @@ async function loadProfile() {
   byId("profile-username").value = data?.username || "";
   currentUsername = data?.username?.trim() || user.user_metadata?.username?.trim() || "Пользователь";
   byId("profile-about").value = data?.about || "";
-  byId("profile-avatar").value = data?.avatar_url || "";
   updateProfileAvatarPreview(data?.avatar_url);
-  byId("menu-profile-username").value = currentUsername;
   currentAbout = data?.about || "";
   currentAvatarUrl = data?.avatar_url || null;
-  byId("profile-menu-name").textContent = currentUsername;
-  byId("profile-menu-email").textContent = user.email || "";
-  updateMenuAvatar(currentAvatarUrl);
+  byId("settings-profile-name").textContent = currentUsername;
+  byId("settings-profile-email").textContent = user.email || "";
 }
 
 async function loadPosts() {
@@ -591,12 +647,16 @@ async function loadConversations() {
     .map((item) => item.conversation_id)
     .filter(isUuid))];
   const list = byId("conversation-list");
-  list.replaceChildren();
-  conversationOverviewRows.clear();
-  conversationsById.clear();
-  conversationUnreadCounts.clear();
-  updateUnreadBadge();
+  const resetConversationList = () => {
+    list.replaceChildren();
+    conversationOverviewRows.clear();
+    conversationsById.clear();
+    conversationUnreadCounts.clear();
+    updateUnreadBadge();
+  };
   if (!ids.length) {
+    if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
+    resetConversationList();
     directConversationByPeer.clear();
     applyConversationFilters();
     try {
@@ -625,6 +685,7 @@ async function loadConversations() {
   const namesByUserId = await loadPublicNames(peerIds, "chat-status");
   if (user?.id !== ownerId || loadVersion !== conversationLoadVersion) return [];
 
+  resetConversationList();
   directConversationByPeer.clear();
   for (const conversation of conversations || []) {
     const conversationPeerIds = (participants || [])
@@ -1306,7 +1367,6 @@ async function loadApp() {
     loadProfile().catch((error) => {
       console.error("GadLink profile load:", error);
       setStatus("profile-status", `Не удалось загрузить профиль: ${error.message}`);
-      byId("menu-profile-status").textContent = `Не удалось загрузить профиль: ${error.message}`;
     }),
     loadPosts().catch((error) => {
       console.error("GadLink posts load:", error);
@@ -1390,6 +1450,7 @@ document.querySelectorAll("[data-section]").forEach((button) => {
     document.querySelectorAll("[data-section]").forEach((item) => item.classList.toggle("is-active", item === button));
     if (targetSection === "reels-section") reelsController?.activate();
     else reelsController?.deactivate();
+    void voiceCallsController.syncIncomingCalls();
     if (targetSection === "calls-section") void voiceCallsController.refreshHistory();
     if (targetSection === "chats-section" &&
         isConversationVisible(currentConversation?.id)) {
@@ -1582,38 +1643,13 @@ byId("server-invite").addEventListener("click", async () => {
 });
 document.querySelector(".profile-menu__backdrop").addEventListener("click", () => setMenuOpen(false));
 byId("add-contact-button").addEventListener("click", () => {
-  setCreateMenuOpen(byId("create-menu").hidden);
+  window.dispatchEvent(new CustomEvent("gadlink:friend-add-open"));
+  setFriendDialogOpen(true);
 });
-byId("create-menu").addEventListener("click", (event) => {
-  const action = event.target.closest("[data-create-action]")?.dataset.createAction;
-  if (!action) return;
-  setCreateMenuOpen(false);
-
-  if (action === "channel") {
-    showCommunitiesForChannelCreation();
-  } else if (action === "contact") {
-    setFriendDialogOpen(true);
-  }
-});
-document.addEventListener("click", (event) => {
-  if (byId("community-add-menu").hidden) return;
-  if (event.target.closest("#community-add-menu, #community-add-open")) return;
-  byId("community-add-menu").hidden = true;
-  byId("community-add-open").setAttribute("aria-expanded", "false");
-});
-document.addEventListener("click", (event) => {
-  if (byId("create-menu").hidden) return;
-  if (event.target.closest("#create-menu, #add-contact-button")) return;
-  setCreateMenuOpen(false);
-});
+window.addEventListener("gadlink:friend-requests-open", () => setFriendDialogOpen(false, false));
 byId("friend-add-close").addEventListener("click", () => setFriendDialogOpen(false));
 document.querySelector(".friend-add-dialog__backdrop").addEventListener("click", () => setFriendDialogOpen(false));
-byId("menu-avatar-file").parentElement.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    byId("menu-avatar-file").click();
-  }
-});
+
 document.addEventListener("keydown", (event) => {
   const communityDialog = [...document.querySelectorAll(".community-dialog")]
     .find((dialog) => !dialog.hidden);
@@ -1680,31 +1716,7 @@ document.addEventListener("keydown", (event) => {
     }
     return;
   }
-  if (!byId("create-menu").hidden) {
-    if (event.key === "Escape") {
-      setCreateMenuOpen(false);
-      byId("add-contact-button").focus();
-    } else if (event.key === "Tab") {
-      const actions = [...byId("create-menu").querySelectorAll('[role="menuitem"]')];
-      const first = actions[0];
-      const last = actions[actions.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        byId("add-contact-button").focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        byId("add-contact-button").focus();
-      }
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      const actions = [...byId("create-menu").querySelectorAll('[role="menuitem"]')];
-      const currentIndex = actions.indexOf(document.activeElement);
-      const direction = event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex = (currentIndex + direction + actions.length) % actions.length;
-      event.preventDefault();
-      actions[nextIndex].focus();
-    }
-    return;
-  }
+
   if (byId("menu-toggle").getAttribute("aria-expanded") !== "true") return;
   if (event.key === "Escape") {
     setMenuOpen(false);
@@ -1803,7 +1815,8 @@ byId("sign-up").addEventListener("click", async () => {
       return;
     }
 
-    setStatus("auth-status", "Регистрация создана. Подтвердите почту по ссылке из письма, затем войдите в аккаунт. Если письма нет, запросите его повторно.");
+    byId("auth-status").hidden = true;
+    byId("auth-success").hidden = false;
     showResendButton(true);
   } catch (error) {
     const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
@@ -1896,16 +1909,16 @@ byId("profile-form").addEventListener("submit", async (event) => {
     const profile = await saveProfile({
       username: byId("profile-username").value.trim(),
       about: byId("profile-about").value.trim(),
-      avatarUrl: safeUrl(byId("profile-avatar").value.trim()) || null,
+      avatarUrl: currentAvatarUrl,
       avatarFile: byId("profile-avatar-file").files[0]
     });
     syncProfileFields(profile);
+    byId("profile-avatar-file").value = "";
     setStatus("profile-status", "Профиль сохранён.");
   } catch (error) {
     setStatus("profile-status", error.message);
   } finally {
     submitButton.disabled = false;
-    byId("profile-avatar-file").value = "";
   }
 });
 
@@ -1920,54 +1933,12 @@ byId("profile-avatar-file").addEventListener("change", () => {
   }
   if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
   profileAvatarPreviewUrl = URL.createObjectURL(file);
-  byId("profile-avatar").value = "";
   updateProfileAvatarPreview(profileAvatarPreviewUrl);
 });
-byId("profile-avatar").addEventListener("input", () => {
-  if (profileAvatarPreviewUrl) URL.revokeObjectURL(profileAvatarPreviewUrl);
-  profileAvatarPreviewUrl = null;
-  byId("profile-avatar-file").value = "";
-  updateProfileAvatarPreview(byId("profile-avatar").value);
-});
+
 byId("profile-username").addEventListener("input", () => {
+  byId("settings-profile-name").textContent = byId("profile-username").value.trim() || currentUsername || "Profile";
   if (byId("profile-avatar-preview-image").hidden) updateProfileAvatarPreview("");
-});
-
-byId("menu-avatar-file").addEventListener("change", () => {
-  const file = byId("menu-avatar-file").files[0];
-  if (!file) return;
-  const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-  if (!supportedTypes.includes(file.type)) {
-    setStatus("menu-profile-status", "Используйте изображение JPG, PNG, WebP или GIF.");
-    byId("menu-avatar-file").value = "";
-    return;
-  }
-  if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
-  avatarPreviewUrl = URL.createObjectURL(file);
-  updateMenuAvatar(avatarPreviewUrl);
-  setStatus("menu-profile-status", "Аватар выбран. Сохраните профиль, чтобы применить изменения.");
-});
-
-byId("menu-profile-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = byId("menu-profile-form");
-  const submitButton = form.querySelector('[type="submit"]');
-  submitButton.disabled = true;
-  setStatus("menu-profile-status", "Сохраняем профиль...");
-  try {
-    const profile = await saveProfile({
-      username: byId("menu-profile-username").value.trim(),
-      about: currentAbout,
-      avatarUrl: currentAvatarUrl,
-      avatarFile: byId("menu-avatar-file").files[0]
-    });
-    syncProfileFields(profile);
-    setStatus("menu-profile-status", "Профиль сохранён.");
-  } catch (error) {
-    setStatus("menu-profile-status", `Не удалось сохранить профиль: ${error.message}`);
-  } finally {
-    submitButton.disabled = false;
-  }
 });
 
 byId("password-form").addEventListener("submit", async (event) => {
