@@ -32,6 +32,9 @@ const publicProfileName = document.getElementById("public-profile-name");
 const publicProfileAbout = document.getElementById("public-profile-about");
 const publicProfileAvatarImage = document.getElementById("public-profile-avatar-image");
 const publicProfileAvatarPlaceholder = document.getElementById("public-profile-avatar-placeholder");
+const EMPTY_ABOUT_TEXT = "Информация о себе не указана";
+const ABOUT_LOADING_TEXT = "Загружаем информацию о себе…";
+const ABOUT_LOAD_ERROR_TEXT = "Не удалось загрузить описание профиля. Проверьте подключение и попробуйте снова.";
 
 if (
   section &&
@@ -68,6 +71,7 @@ if (
   let publicProfileUserId = null;
   let publicProfileCloseTimer = null;
   let publicProfileRequestId = 0;
+  const publicProfileAboutVersions = new Map();
 
   function closePublicProfile(restoreFocus = true) {
     publicProfileRequestId += 1;
@@ -111,35 +115,39 @@ if (
 
   async function openPublicProfile(profile, opener) {
     if (!profile?.id) return;
+    const profileId = profile.id;
     const requestId = ++publicProfileRequestId;
-    publicProfileUserId = profile.id;
+    const aboutVersion = publicProfileAboutVersions.get(profileId) || 0;
+    publicProfileUserId = profileId;
     publicProfileOpener = opener instanceof HTMLElement ? opener : document.activeElement;
     publicProfileName.textContent = profile.username?.trim() || "Пользователь";
-    publicProfileAbout.textContent = profile.about === undefined
-      ? "Загружаем информацию о себе…"
-      : profile.about?.trim() || "Информация о себе не указана";
+    publicProfileAbout.textContent = ABOUT_LOADING_TEXT;
     setPublicProfileAvatar(profile);
     window.dispatchEvent(new CustomEvent("gadlink:friend-profile-open"));
     publicProfileDialog.hidden = false;
     publicProfileDialog.removeAttribute("inert");
     requestAnimationFrame(() => publicProfileDialog.classList.add("is-open"));
     publicProfileDialog.querySelector(".public-profile-dialog__close")?.focus();
-    if (profile.about === undefined) {
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("about")
-          .eq("id", profile.id)
-          .maybeSingle();
-        if (error) throw error;
-        if (requestId === publicProfileRequestId && !publicProfileDialog.hidden) {
-          publicProfileAbout.textContent = data?.about?.trim() || "Информация о себе не указана";
-        }
-      } catch (error) {
-        console.error("GadLink public profile details:", error);
-        if (requestId === publicProfileRequestId && !publicProfileDialog.hidden) {
-          publicProfileAbout.textContent = "Не удалось загрузить описание профиля.";
-        }
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,about")
+        .eq("id", profileId)
+        .maybeSingle();
+      if (error) throw error;
+      if (requestId !== publicProfileRequestId || publicProfileDialog.hidden || publicProfileUserId !== profileId) return;
+      if ((publicProfileAboutVersions.get(profileId) || 0) !== aboutVersion) return;
+      if (!data || data.id !== profileId) {
+        console.error("GadLink public profile about load failed:", "PROFILE_ROW_NOT_VISIBLE");
+        publicProfileAbout.textContent = ABOUT_LOAD_ERROR_TEXT;
+        return;
+      }
+      publicProfileAbout.textContent = data.about?.trim() || EMPTY_ABOUT_TEXT;
+    } catch (error) {
+      console.error("GadLink public profile about load failed:", error?.code || "UNKNOWN_ERROR");
+      if (requestId === publicProfileRequestId && !publicProfileDialog.hidden && publicProfileUserId === profileId &&
+          (publicProfileAboutVersions.get(profileId) || 0) === aboutVersion) {
+        publicProfileAbout.textContent = ABOUT_LOAD_ERROR_TEXT;
       }
     }
   }
@@ -634,15 +642,28 @@ if (
     }
   }
 
+  function mergeProfileData(previous, next) {
+    const merged = { ...(previous || {}) };
+    for (const [key, value] of Object.entries(next || {})) {
+      if (value !== undefined) merged[key] = value;
+    }
+    return merged;
+  }
+
   window.addEventListener("gadlink:profile-updated", (event) => {
     const profile = event.detail;
     if (!profile?.id) return;
-    if (state.profileById.has(profile.id)) state.profileById.set(profile.id, profile);
-    state.searchResults = state.searchResults.map((item) => item.id === profile.id ? { ...item, ...profile } : item);
+    if (Object.prototype.hasOwnProperty.call(profile, "about")) {
+      publicProfileAboutVersions.set(profile.id, (publicProfileAboutVersions.get(profile.id) || 0) + 1);
+    }
+    if (state.profileById.has(profile.id)) {
+      state.profileById.set(profile.id, mergeProfileData(state.profileById.get(profile.id), profile));
+    }
+    state.searchResults = state.searchResults.map((item) => item.id === profile.id ? mergeProfileData(item, profile) : item);
     if (publicProfileUserId === profile.id && !publicProfileDialog.hidden) {
       publicProfileName.textContent = profile.username?.trim() || "Пользователь";
-      if (profile.about !== undefined) {
-        publicProfileAbout.textContent = profile.about?.trim() || "Информация о себе не указана";
+      if (Object.prototype.hasOwnProperty.call(profile, "about")) {
+        publicProfileAbout.textContent = profile.about?.trim() || EMPTY_ABOUT_TEXT;
       }
       setPublicProfileAvatar(profile);
     }
@@ -823,10 +844,13 @@ if (
         person => person.id !== user.id
       );
       const profileById = await getPublicProfileNames(visibleUsers.map((person) => person.id));
-      state.searchResults = visibleUsers.map((person) => ({
-        ...person,
-        ...profileById.get(person.id)
-      }));
+      state.searchResults = visibleUsers.map((person) => {
+        const merged = { ...person };
+        for (const [key, value] of Object.entries(profileById.get(person.id) || {})) {
+          if (value !== undefined) merged[key] = value;
+        }
+        return merged;
+      });
 
       renderSearch();
 

@@ -1,10 +1,10 @@
-const CACHE_NAME = "gadlink-static-v32";
+const CACHE_NAME = "gadlink-static-v33";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./confirm.html",
   "./style.css?v=11",
-  "./app.js?v=16",
+  "./app.js?v=17",
   "./js/auth.js",
   "./js/confirm.js",
   "./js/supabaseClient.js",
@@ -14,7 +14,7 @@ const APP_SHELL = [
   "./js/friends-ui.js?v=2",
   "./js/friends.js",
   "./js/reels.js?v=5",
-  "./js/voice-calls.js",
+  "./js/voice-calls.js?v=2",
   "./js/voice-rooms.js",
   "./manifest.webmanifest",
   "./assets/gadlink-icon.svg",
@@ -92,9 +92,18 @@ self.addEventListener("push", (event) => {
       await reportPushFailure("Получено некорректное сообщение от сервера уведомлений.");
       return;
     }
-    if (!payload || !["message", "incoming_call", "missed_call"].includes(payload.type)) {
+    if (!payload || !["message", "incoming_call", "missed_call", "call_state"].includes(payload.type)) {
       console.error("GadLink push payload has an unsupported notification type.");
       await reportPushFailure("Сервер прислал уведомление неподдерживаемого типа.");
+      return;
+    }
+
+    if (payload.type === "call_state") {
+      if (!payload.callId) return;
+      const notifications = await self.registration.getNotifications({
+        tag: `gadlink-call-${payload.callId}`
+      });
+      notifications.forEach((notification) => notification.close());
       return;
     }
 
@@ -111,6 +120,16 @@ self.addEventListener("push", (event) => {
         url: payload.url || "./"
       }
     };
+    if (payload.type === "incoming_call") {
+      options.requireInteraction = true;
+      options.actions = [
+        { action: "answer", title: "Ответить" },
+        { action: "reject", title: "Отклонить" }
+      ];
+      if (typeof payload.image === "string" && payload.image.startsWith("https://")) {
+        options.image = payload.image;
+      }
+    }
     try {
       await self.registration.showNotification(payload.title || "GadLink", options);
     } catch (error) {
@@ -130,6 +149,7 @@ self.addEventListener("push", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
+  const action = event.action;
   event.notification.close();
   event.waitUntil((async () => {
     const data = event.notification.data || {};
@@ -140,6 +160,9 @@ self.addEventListener("notificationclick", (event) => {
     }
     if (data.conversationId) target.searchParams.set("conversation", data.conversationId);
     if (data.callId) target.searchParams.set("call", data.callId);
+    if (data.callId && (action === "answer" || action === "reject")) {
+      target.searchParams.set("callAction", action);
+    }
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windows) {
       if (client.url.startsWith(self.registration.scope) && "focus" in client) {

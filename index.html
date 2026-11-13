@@ -458,7 +458,8 @@
     <section class="notification-settings push-settings-dialog__panel">
       <button class="push-settings-dialog__close" type="button" data-push-settings-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
       <h3 id="push-settings-title">Push-уведомления</h3>
-      <p>Включите уведомления, чтобы не пропускать сообщения. Разрешение можно изменить в настройках браузера.</p>
+      <p>Включите уведомления, чтобы получать сообщения и входящие звонки, пока GadLink свёрнут или открыт другой раздел.</p>
+      <p class="push-call-help">Для телефона установите GadLink на главный экран: на Android выберите «Установить приложение» в меню Chrome, на iPhone откройте меню «Поделиться» в Safari и нажмите «На экран Домой». Затем разрешите уведомления. Доставка зависит от браузера и настроек энергосбережения.</p>
       <button id="push-toggle" type="button">Включить уведомления</button>
       <label id="push-preview-option" class="push-preview-option" hidden>
         <input id="push-show-preview" type="checkbox">
@@ -680,6 +681,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=16"></script>
+  <script type="module" src="app.js?v=17"></script>
 </body>
 </html>

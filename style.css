@@ -4118,6 +4118,7 @@ select:focus-visible {
 .push-settings-dialog__backdrop:active:not(:disabled) { background: rgba(5,5,8,.3); box-shadow: none; transform: none; }
 #push-settings-dialog .push-settings-dialog__panel h3 { margin: 0 32px 10px 0; font-size: 22px; }
 #push-settings-dialog .push-settings-dialog__panel > p:first-of-type { margin-bottom: 18px; line-height: 1.6; }
+.push-call-help { margin: -8px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 #push-settings-dialog .push-settings-dialog__panel > #push-toggle { min-height: 50px; border-radius: 15px; font-size: 14px; }
 #push-settings-dialog .push-settings-dialog__panel > .push-settings-dialog__close {
   position: absolute;

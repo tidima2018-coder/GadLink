@@ -171,11 +171,11 @@ begin
     for rule in
       select * from (values
         ('gadlink_avatars_insert', 'PERMISSIVE', 'INSERT', null, 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text'),
-        ('gadlink_avatars_guard_insert', 'RESTRICTIVE', 'INSERT', null, 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text'),
+        ('gadlink_avatars_guard_insert', 'RESTRICTIVE', 'INSERT', null, 'bucket_id <> ''avatars'' or (bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text)'),
         ('gadlink_avatars_update', 'PERMISSIVE', 'UPDATE', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text'),
-        ('gadlink_avatars_guard_update', 'RESTRICTIVE', 'UPDATE', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text'),
+        ('gadlink_avatars_guard_update', 'RESTRICTIVE', 'UPDATE', 'bucket_id <> ''avatars'' or (bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text)', 'bucket_id <> ''avatars'' or (bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text)'),
         ('gadlink_avatars_delete', 'PERMISSIVE', 'DELETE', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text', null),
-        ('gadlink_avatars_guard_delete', 'RESTRICTIVE', 'DELETE', 'bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text', null)
+        ('gadlink_avatars_guard_delete', 'RESTRICTIVE', 'DELETE', 'bucket_id <> ''avatars'' or (bucket_id = ''avatars'' and (storage.foldername(name))[1] = auth.uid()::text)', null)
       ) as rules(policy_name, policy_mode, command_name, using_expression, check_expression)
     loop
       if not exists (

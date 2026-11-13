@@ -1407,6 +1407,70 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     return activeCall?.id === row.id;
   }
 
+  async function handlePushCallAction(callId, action) {
+    if (!isUuid(callId) || !["answer", "reject"].includes(action)) return false;
+    const owner = getUser();
+    if (!owner?.id) return false;
+
+    const { data: row, error } = await supabase
+      .from("voice_calls")
+      .select("id,caller_id,callee_id,status,created_at")
+      .eq("id", callId)
+      .maybeSingle();
+    if (error) {
+      console.error("GadLink notification call lookup:", error);
+      setStatus("Не удалось проверить актуальность звонка. Откройте раздел звонков и попробуйте ещё раз.");
+      return false;
+    }
+    if (!row || row.callee_id !== owner.id) {
+      setStatus("Этот входящий звонок недоступен.");
+      return false;
+    }
+    const age = Date.now() - new Date(row.created_at).getTime();
+    if (row.status !== "ringing" || !Number.isFinite(age) || age < -30_000 || age >= RING_TIMEOUT_MS) {
+      if (row.status === "ringing" && Number.isFinite(age) && age >= RING_TIMEOUT_MS) {
+        const { error: expireError } = await supabase.rpc("gadlink_transition_voice_call", {
+          target_call_id: row.id,
+          call_action: "missed"
+        });
+        if (expireError) console.error("GadLink expire notification call:", expireError);
+      }
+      setStatus("Звонок уже завершён или истёк.");
+      await refreshHistory();
+      return false;
+    }
+
+    if (action === "reject") {
+      const { error: rejectError } = await supabase.rpc("gadlink_transition_voice_call", {
+        target_call_id: row.id,
+        call_action: "reject"
+      });
+      if (rejectError) {
+        console.error("GadLink reject notification call:", rejectError);
+        setStatus("Не удалось отклонить звонок. Откройте GadLink и попробуйте ещё раз.");
+        return false;
+      }
+      if (activeCall?.id === row.id) await releaseCallResources({ expectedCall: activeCall });
+      setStatus("Звонок отклонён.");
+      await refreshHistory();
+      return true;
+    }
+
+    if (!await resumeIncomingCall(callId)) return false;
+    try {
+      const permission = await navigator.permissions?.query?.({ name: "microphone" });
+      if (permission?.state === "granted") {
+        await acceptCall();
+      } else {
+        setCallStatus("Звонок открыт. Нажмите «Ответить», чтобы разрешить микрофон и начать разговор.");
+      }
+    } catch (error) {
+      console.warn("GadLink microphone permission status is unavailable:", error);
+      setCallStatus("Звонок открыт. Нажмите «Ответить», чтобы начать разговор.");
+    }
+    return true;
+  }
+
   async function acceptCall() {
     if (!activeCall || activeCall.outgoing || activeCall.accepted || !activeCall.channelReady) return;
     const call = activeCall;
@@ -1560,6 +1624,12 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
         const previousStatus = callStatusById.get(row.id);
         const statusChanged = previousStatus === undefined || previousStatus !== row.status;
         callStatusById.set(row.id, row.status);
+        if (payload.eventType === "UPDATE" && row.status !== "ringing" && "serviceWorker" in navigator) {
+          void navigator.serviceWorker.getRegistration().then(async (registration) => {
+            const notifications = await registration?.getNotifications({ tag: `gadlink-call-${row.id}` });
+            notifications?.forEach((notification) => notification.close());
+          }).catch((error) => console.warn("GadLink could not dismiss a call notification:", error));
+        }
         if (payload.eventType === "INSERT" && row.callee_id === ownerId && row.status === "ringing") {
           void receiveIncomingCall(row);
         }
@@ -1773,6 +1843,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     startCall,
     refreshHistory,
     resumeIncomingCall,
+    handlePushCallAction,
     syncIncomingCalls: () => {
       const ownerId = getUser()?.id;
       return ownerId ? syncPendingIncomingCalls(ownerId) : Promise.resolve();

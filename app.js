@@ -2,7 +2,7 @@ import "./js/friends-ui.js?v=2";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames, resolveAvatarUrl } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js?v=5";
-import { createVoiceCallController } from "./js/voice-calls.js";
+import { createVoiceCallController } from "./js/voice-calls.js?v=2";
 import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
 import { createChatBackgroundSettings } from "./js/chat-background.js";
@@ -1456,8 +1456,10 @@ async function openNotificationRoute() {
   const url = new URL(window.location.href);
   const conversationId = url.searchParams.get("conversation");
   const callId = url.searchParams.get("call");
+  const callAction = url.searchParams.get("callAction");
   url.searchParams.delete("conversation");
   url.searchParams.delete("call");
+  url.searchParams.delete("callAction");
   if (window.location.search !== url.search) {
     history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
@@ -1473,7 +1475,11 @@ async function openNotificationRoute() {
   }
   if (isUuid(callId)) {
     document.querySelector('[data-section="calls-section"]')?.click();
-    await voiceCallsController.resumeIncomingCall(callId);
+    if (callAction === "answer" || callAction === "reject") {
+      await voiceCallsController.handlePushCallAction(callId, callAction);
+    } else {
+      await voiceCallsController.resumeIncomingCall(callId);
+    }
   }
 }
 

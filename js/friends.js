@@ -38,14 +38,17 @@ export async function searchUsers(username) {
       if (detailsError) throw detailsError;
       aboutById = new Map((details || []).map((profile) => [profile.id, profile.about || ""]));
     } catch (error) {
-      console.error("GadLink public profile details:", error);
+      console.error("GadLink public profile details:", error?.code || "UNKNOWN_ERROR");
     }
   }
-  return profiles.map((profile) => ({
-    ...profile,
-    about: aboutById.get(profile.id) || profile.about || "",
-    avatar_url: resolveAvatarUrl(profile.avatar_url) || null
-  }));
+  return profiles.map((profile) => {
+    const about = aboutById.has(profile.id) ? aboutById.get(profile.id) : profile.about;
+    return {
+      ...profile,
+      about: typeof about === "string" ? about : undefined,
+      avatar_url: resolveAvatarUrl(profile.avatar_url) || null
+    };
+  });
 }
 
 export async function getPublicProfileNames(profileIds) {
@@ -100,7 +103,7 @@ export async function getPublicProfileNames(profileIds) {
       if (existing) existing.about = profile.about || "";
     }
   } catch (error) {
-    console.error("GadLink public profile descriptions:", error);
+    console.error("GadLink public profile descriptions:", error?.code || "UNKNOWN_ERROR");
   }
   return profilesById;
 }

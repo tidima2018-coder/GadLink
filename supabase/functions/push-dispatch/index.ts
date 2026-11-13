@@ -96,11 +96,24 @@ async function deleteSubscription(endpoint: string): Promise<void> {
   await serviceRequest(`push_subscriptions?${params}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
 }
 
-async function profileName(userId: string): Promise<string> {
-  const params = new URLSearchParams({ select: "username", id: `eq.${userId}`, limit: "1" });
+async function profileDetails(userId: string): Promise<{ username: string; avatarUrl: string | null }> {
+  const params = new URLSearchParams({ select: "username,avatar_url", id: `eq.${userId}`, limit: "1" });
   const rows = await selectRows(`profiles?${params}`);
   const username = rows[0]?.username;
-  return typeof username === "string" && username.trim() ? username.trim() : "Пользователь";
+  const rawAvatar = rows[0]?.avatar_url;
+  let avatarUrl: string | null = null;
+  if (typeof rawAvatar === "string") {
+    try {
+      const parsed = new URL(rawAvatar);
+      if (parsed.protocol === "https:") avatarUrl = parsed.href;
+    } catch {
+      // Ignore malformed profile image URLs in a system notification.
+    }
+  }
+  return {
+    username: typeof username === "string" && username.trim() ? username.trim() : "Пользователь",
+    avatarUrl
+  };
 }
 
 async function sendToUser(userId: string, eventKey: string, payload: JsonRecord): Promise<void> {
@@ -118,7 +131,7 @@ async function sendToUser(userId: string, eventKey: string, payload: JsonRecord)
     const [eventRows, subscriptions] = await Promise.all([
       selectRows(`gadlink_push_event_log?${eventParams}`),
       selectRows(`push_subscriptions?${new URLSearchParams({
-        select: "endpoint,p256dh,auth,show_preview",
+        select: "endpoint,p256dh,auth,show_preview,is_visible,last_seen_at",
         user_id: `eq.${userId}`
       })}`)
     ]);
@@ -134,6 +147,10 @@ async function sendToUser(userId: string, eventKey: string, payload: JsonRecord)
         continue;
       }
       if (deliveredEndpoints.has(endpoint)) continue;
+      const lastSeenAt = Date.parse(String(row.last_seen_at || ""));
+      const recentlyVisible = row.is_visible === true && Number.isFinite(lastSeenAt) &&
+        Date.now() - lastSeenAt >= -30_000 && Date.now() - lastSeenAt < 25_000;
+      if (payload.type === "incoming_call" && recentlyVisible) continue;
       if (!allowedPushEndpoint(endpoint) ||
           typeof row.p256dh !== "string" || typeof row.auth !== "string") {
         console.error("Removing malformed or unsupported push subscription", userId);
@@ -234,7 +251,7 @@ Deno.serve(async (request) => {
         user_id: `neq.${record.user_id}`
       });
       const recipients = await selectRows(`conversation_members?${params}`);
-      const sender = await profileName(record.user_id);
+      const sender = (await profileDetails(record.user_id)).username;
       const eventKey = `message:${record.id}`;
       const deliveries = await Promise.allSettled(recipients.filter((row) => isUuid(row.user_id)).map((row) => {
         const recipientId = row.user_id as string;
@@ -262,21 +279,53 @@ Deno.serve(async (request) => {
 
     if (table === "voice_calls" && eventType === "INSERT" && record.status === "ringing" &&
         isUuid(record.caller_id) && isUuid(record.callee_id)) {
-      const caller = await profileName(record.caller_id);
+      const callParams = new URLSearchParams({
+        select: "id,caller_id,callee_id,status,created_at",
+        id: `eq.${record.id}`,
+        limit: "1"
+      });
+      const currentCalls = await selectRows(`voice_calls?${callParams}`);
+      const currentCall = currentCalls[0];
+      const ageMs = currentCall ? Date.now() - Date.parse(String(currentCall.created_at)) : Infinity;
+      if (!currentCall || currentCall.status !== "ringing" ||
+          currentCall.caller_id !== record.caller_id || currentCall.callee_id !== record.callee_id ||
+          !Number.isFinite(ageMs) || ageMs < -30_000 || ageMs >= 45_000) {
+        return new Response(null, { status: 204 });
+      }
+      const caller = await profileDetails(record.caller_id);
       await sendToUser(record.callee_id, `call:${record.id}:ringing`, {
         type: "incoming_call",
         eventId: record.id,
-        title: `Входящий звонок от ${caller}`,
-        body: "Откройте GadLink, чтобы принять или отклонить звонок.",
+        title: "GadLink",
+        body: `${caller.username} · Входящий звонок`,
+        callerName: caller.username,
+        image: caller.avatarUrl,
         callId: record.id,
+        tag: `gadlink-call-${record.id}`,
         url: "./"
       });
       return new Response(null, { status: 204 });
     }
 
+    if (table === "voice_calls" && eventType === "UPDATE" &&
+        isUuid(record.caller_id) && isUuid(record.callee_id) &&
+        ["accepted", "rejected", "missed", "cancelled", "ended", "failed"].includes(String(record.status))) {
+      const oldRecord = event.old_record as JsonRecord | undefined;
+      if (oldRecord?.status !== record.status) {
+        await sendToUser(record.callee_id, `call:${record.id}:state:${record.status}`, {
+          type: "call_state",
+          eventId: record.id,
+          callId: record.id,
+          status: record.status,
+          tag: `gadlink-call-${record.id}`,
+          url: "./"
+        });
+      }
+    }
+
     if (table === "voice_calls" && eventType === "UPDATE" && record.status === "missed" &&
         isUuid(record.callee_id)) {
-      const caller = isUuid(record.caller_id) ? await profileName(record.caller_id) : "Пользователь";
+      const caller = isUuid(record.caller_id) ? (await profileDetails(record.caller_id)).username : "Пользователь";
       await sendToUser(record.callee_id, `call:${record.id}:missed`, {
         type: "missed_call",
         eventId: record.id,
