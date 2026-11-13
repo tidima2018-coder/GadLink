@@ -5,266 +5,139 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Подтверждение почты — GadLink</title>
-
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; }
 
     body {
+      margin: 0;
       min-height: 100vh;
-      font-family: Arial, sans-serif;
-      color: #fff;
-      background: #0b0e19;
       display: flex;
-      flex-direction: column;
-      overflow-x: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      width: 500px;
-      height: 500px;
-      top: -220px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #5664e8;
-      filter: blur(160px);
-      opacity: 0.25;
-      pointer-events: none;
-    }
-
-    header {
-      padding: 28px 7%;
-      position: relative;
-      z-index: 1;
-    }
-
-    .logo {
-      font-size: 27px;
-      font-weight: 800;
-      letter-spacing: -1px;
-      text-decoration: none;
-      color: #fff;
-    }
-
-    .logo span {
-      color: #8793ff;
-    }
-
-    main {
-      flex: 1;
-      display: flex;
-      align-items: center;
       justify-content: center;
-      padding: 30px 20px 70px;
+      align-items: center;
+      background: #101012;
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 20px;
     }
 
     .card {
-      position: relative;
       width: 100%;
-      max-width: 470px;
-      padding: 46px 35px;
+      max-width: 420px;
+      background: #242024;
+      border: 1px solid #393239;
+      border-radius: 24px;
+      padding: 38px 25px;
       text-align: center;
-      background: #171b2c;
-      border: 1px solid #333a55;
-      border-radius: 24px;
-      box-shadow: 0 24px 70px #0005;
-      animation: appear 0.6s ease;
     }
 
-    .icon-box {
-      width: 88px;
-      height: 88px;
-      margin: 0 auto 28px;
-      border-radius: 24px;
-      background: linear-gradient(135deg, #5865f2, #9b70f7);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 40px;
-      box-shadow: 0 12px 35px #5865f244;
+    .logo {
+      font-size: 38px;
+      font-weight: 800;
+      color: #ee91a5;
+      margin-bottom: 25px;
     }
 
-    .eyebrow {
-      color: #929cff;
-      font-size: 12px;
-      text-transform: uppercase;
-      font-weight: bold;
-      letter-spacing: 2px;
-      margin-bottom: 15px;
-    }
+    h1 { font-size: 25px; }
 
-    h1 {
-      font-size: 29px;
-      line-height: 1.2;
-      letter-spacing: -0.7px;
-      margin-bottom: 16px;
-    }
-
-    .description {
-      color: #a8b0c8;
-      font-size: 15px;
-      line-height: 1.8;
-      margin-bottom: 30px;
-    }
-
-    .confirm-btn {
-      width: 100%;
-      border: 0;
-      border-radius: 13px;
-      padding: 18px;
-      font-size: 16px;
-      font-weight: bold;
-      color: #fff;
-      background: linear-gradient(100deg, #5865f2, #7c70ff);
-      cursor: pointer;
-      transition: 0.25s;
-      box-shadow: 0 9px 25px #5865f233;
-    }
-
-    .confirm-email {
-      width: 100%;
-      margin-bottom: 12px;
-      padding: 14px;
-      border: 1px solid #3b4260;
-      border-radius: 12px;
-      background: #101323;
-      color: #fff;
-      font: inherit;
-    }
-
-    .confirm-btn:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 30px #5865f255;
-    }
-
-    .confirm-btn:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-    }
-
-    .status {
-      color: #a8b0c8;
-      font-size: 14px;
+    p {
+      color: #c9bac0;
       line-height: 1.6;
-      margin-top: 20px;
-      min-height: 22px;
+      font-size: 15px;
     }
 
-    .status.success {
-      color: #58d9a0;
-    }
-
-    .status.error {
-      color: #ff9292;
-    }
-
-    .back-link {
+    .button {
       display: inline-block;
-      margin-top: 28px;
-      color: #8793ff;
+      width: 100%;
+      margin-top: 24px;
+      padding: 15px;
+      border-radius: 12px;
+      background: #ee91a5;
+      color: #171316;
+      font-weight: bold;
       text-decoration: none;
-      font-size: 14px;
     }
 
-    .back-link:hover {
-      text-decoration: underline;
-    }
-
-    .footer {
-      border-top: 1px solid #30364b;
-      margin-top: 32px;
-      padding-top: 22px;
-      color: #747e99;
-      font-size: 12px;
-    }
-
-    @keyframes appear {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @media (max-width: 480px) {
-      .card {
-        padding: 38px 23px;
-      }
-
-      h1 {
-        font-size: 25px;
-      }
-    }
+    .hidden { display: none; }
   </style>
 </head>
-
 <body>
+  <main class="card">
+    <div class="logo">GadLink</div>
 
-  <header>
-    <a href="./index.html" class="logo">
-      Gad<span>Link</span>
+    <h1 id="title">Подтверждение почты</h1>
+
+    <p id="status">
+      Проверяем ссылку подтверждения...
+    </p>
+
+    <a id="home" class="button hidden" href="/">
+      Перейти в GadLink
     </a>
-  </header>
-
-  <main>
-    <section class="card">
-
-      <div class="icon-box" id="status-icon">
-        ✉
-      </div>
-
-      <p class="eyebrow">Почти готово</p>
-
-      <h1 id="page-title">
-        Подтверди свою почту
-      </h1>
-
-      <p class="description" id="description">
-        Добро пожаловать в GadLink!
-        Откройте ссылку из письма, чтобы подтвердить адрес электронной почты.
-      </p>
-
-      <input
-        id="confirm-email"
-        class="confirm-email"
-        type="email"
-        autocomplete="email"
-        aria-label="Электронная почта"
-        placeholder="Электронная почта для повторной отправки"
-      >
-
-      <button type="button" class="confirm-btn" id="resend-confirmation" hidden>
-        Отправить письмо повторно
-      </button>
-
-      <p
-        id="confirm-status"
-        class="status"
-        role="status"
-        aria-live="polite"
-      ></p>
-
-      <a href="./index.html" class="back-link">
-        Вернуться на GadLink
-      </a>
-
-      <div class="footer">
-        © 2026 GadLink. Все права защищены.
-      </div>
-
-    </section>
   </main>
 
-  <script type="module" src="./js/confirm.js"></script>
+  <script type="module">
+    import { createClient } from
+      "https://esm.sh/@supabase/supabase-js@2";
 
+    // Вставь значения из существующего проекта GadLink
+    const SUPABASE_URL = "https://efvnyjvvijbwzaglxpbd.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_W9agBe00b6SuGj_n9a380g_D8Ij8NuK";
+
+    const supabase = createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+
+    const title = document.getElementById("title");
+    const status = document.getElementById("status");
+    const home = document.getElementById("home");
+
+    async function confirmEmail() {
+      const params = new URLSearchParams(
+        window.location.search
+      );
+
+      const token_hash = params.get("token_hash");
+      const type = params.get("type");
+
+      if (!token_hash || type !== "email") {
+        title.textContent = "Ошибка подтверждения";
+        status.textContent =
+          "Ссылка недействительна. Запросите новое письмо.";
+        home.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash,
+          type: "email"
+        });
+
+        if (error) throw error;
+
+        title.textContent = "Почта подтверждена!";
+        status.textContent =
+          "Аккаунт успешно активирован. Теперь можно войти в GadLink.";
+
+        window.history.replaceState(
+          {},
+          "",
+          window.location.pathname
+        );
+
+      } catch (error) {
+        console.error("Email confirmation:", error);
+
+        title.textContent = "Ошибка подтверждения";
+        status.textContent =
+          "Ссылка недействительна или срок её действия истёк. Запросите новое письмо.";
+      }
+
+      home.classList.remove("hidden");
+    }
+
+    confirmEmail();
+  </script>
 </body>
 </html>
-  
