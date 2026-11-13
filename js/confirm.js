@@ -5,6 +5,7 @@ import {
   getAuthErrorMessage,
   getCallbackParams,
   getCurrentUser,
+  handleAuthCallback,
   getPendingEmail,
   getResendWait,
   hasAuthCallback,
@@ -48,25 +49,17 @@ async function handleConfirmation() {
     return;
   }
 
-  const tokenHash = params.get("token_hash");
-  const tokenType = params.get("type");
-  if (tokenHash) {
-    if (!["signup", "email"].includes(tokenType)) {
-      showResend("Ссылка подтверждения имеет неверный тип. Запросите новое письмо.");
-      clearAuthCallback();
-      return;
-    }
-
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: tokenType
-    });
-    if (error) throw error;
+  const callbackDetected = hasAuthCallback(params);
+  const callbackSession = await handleAuthCallback(params);
+  if (callbackDetected && !callbackSession) {
+    showResend("Не удалось подтвердить почту. Ссылка могла устареть или открыта в другом браузере.");
+    clearAuthCallback();
+    return;
   }
 
   const user = await getCurrentUser();
+  if (callbackDetected) clearAuthCallback();
   const pendingEmail = getPendingEmail().toLowerCase();
-  const callbackDetected = hasAuthCallback(params);
   const matchesPendingEmail = Boolean(
     user && (!pendingEmail || user.email?.toLowerCase() === pendingEmail)
   );
@@ -112,4 +105,5 @@ emailInput.addEventListener("input", updateResendButton);
 
 handleConfirmation().catch((error) => {
   showResend(getAuthErrorMessage(error));
+  if (hasAuthCallback(getCallbackParams())) clearAuthCallback();
 });

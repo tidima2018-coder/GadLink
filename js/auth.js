@@ -21,6 +21,64 @@ export function hasAuthCallback(params) {
     .some((key) => params.has(key));
 }
 
+export async function handleAuthCallback(params = getCallbackParams()) {
+  if (!hasAuthCallback(params)) return null;
+
+  const callbackError = params.get("error_code") || params.get("error");
+  if (callbackError) {
+    const error = new Error(params.get("error_description") || callbackError);
+    error.code = callbackError;
+    throw error;
+  }
+
+  let signedInSession = null;
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_IN") signedInSession = session;
+  });
+
+  try {
+    let session = null;
+    const code = params.get("code");
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    const tokenHash = params.get("token_hash");
+    const tokenType = params.get("type");
+
+    if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      session = data.session;
+    } else if (accessToken) {
+      if (!refreshToken) throw new Error("В ссылке подтверждения отсутствует refresh token.");
+      const { data, error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      });
+      if (error) throw error;
+      session = data.session;
+    } else if (tokenHash) {
+      if (!["signup", "email"].includes(tokenType)) {
+        throw new Error("Ссылка подтверждения имеет неверный тип. Запросите новое письмо.");
+      }
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: tokenType
+      });
+      if (error) throw error;
+      session = data.session;
+    }
+
+    if (session && signedInSession && session.user?.id !== signedInSession.user?.id) {
+      throw new Error("Не удалось сохранить сессию после подтверждения почты.");
+    }
+
+    return session || signedInSession;
+  } finally {
+    subscription.unsubscribe();
+  }
+}
+
 export function clearAuthCallback() {
   window.history.replaceState({}, document.title, window.location.pathname);
 }

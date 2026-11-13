@@ -7,9 +7,13 @@ import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
 import { createChatBackgroundSettings } from "./js/chat-background.js";
 import {
+  clearAuthCallback,
   getCurrentUser,
+  getCallbackParams,
   getAuthErrorMessage,
   getResendWait,
+  handleAuthCallback,
+  hasAuthCallback,
   registerWithEmail,
   signInWithEmail,
   signOutUser,
@@ -2338,7 +2342,12 @@ supabase.auth.onAuthStateChange((_event, session) => {
   }
 });
 
-getCurrentUser().then(async (currentUser) => {
+const authCallbackParams = getCallbackParams();
+const authCallbackDetected = hasAuthCallback(authCallbackParams);
+
+handleAuthCallback(authCallbackParams).then(async () => {
+  if (authCallbackDetected) clearAuthCallback();
+  const currentUser = await getCurrentUser();
   if (!currentUser) return;
   user = currentUser;
   try {
@@ -2354,6 +2363,7 @@ getCurrentUser().then(async (currentUser) => {
     }
   }
 }).catch((error) => {
+  if (authCallbackDetected) clearAuthCallback();
   showApp(false);
   setStatus("auth-status", getAuthErrorMessage(error));
 });
