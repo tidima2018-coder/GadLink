@@ -3,141 +3,394 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#101012">
   <title>Подтверждение почты — GadLink</title>
+
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
 
     body {
       margin: 0;
       min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #101012;
-      color: white;
-      font-family: Arial, sans-serif;
+      display: grid;
+      place-items: center;
       padding: 20px;
+      font-family: Arial, sans-serif;
+      color: #fff;
+      background: #101012;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      width: 340px;
+      height: 340px;
+      border-radius: 50%;
+      background: #ee91a5;
+      filter: blur(130px);
+      opacity: .13;
+      top: -130px;
+      right: -130px;
+      pointer-events: none;
     }
 
     .card {
+      position: relative;
       width: 100%;
-      max-width: 420px;
-      background: #242024;
-      border: 1px solid #393239;
-      border-radius: 24px;
-      padding: 38px 25px;
+      max-width: 440px;
+      padding: 40px 28px;
       text-align: center;
+      background: #242024;
+      border: 1px solid #40363c;
+      border-radius: 26px;
+      box-shadow: 0 20px 65px #0005;
+      animation: cardIn .6s ease both;
     }
 
     .logo {
-      font-size: 38px;
-      font-weight: 800;
-      color: #ee91a5;
-      margin-bottom: 25px;
+      width: 76px;
+      height: 76px;
+      border-radius: 22px;
+      display: block;
+      margin: 0 auto 12px;
     }
 
-    h1 { font-size: 25px; }
+    .brand {
+      margin: 0;
+      font-size: 29px;
+      font-weight: 800;
+      color: #ee91a5;
+    }
 
-    p {
-      color: #c9bac0;
-      line-height: 1.6;
+    .subtitle {
+      font-size: 13px;
+      color: #aa9ca5;
+      margin: 9px 0 30px;
+    }
+
+    .symbol {
+      display: grid;
+      place-items: center;
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 22px;
+      border-radius: 50%;
+      background: #422d37;
+      color: #ee91a5;
+      font-size: 42px;
+      font-weight: bold;
+      border: 2px solid #ee91a555;
+      animation: pulse 2.2s infinite;
+    }
+
+    .symbol.success {
+      color: #62dba0;
+      background: #173b2b;
+      border-color: #62dba0;
+      animation: pop .5s ease both;
+    }
+
+    .symbol.error {
+      color: #ff9ba5;
+      background: #49272e;
+      border-color: #ff7889;
+      animation: shake .45s ease;
+      box-shadow: 0 0 30px #ff788922;
+    }
+
+    .symbol.loading {
+      color: transparent;
+      animation: none;
+    }
+
+    .symbol.loading::after {
+      content: "";
+      width: 33px;
+      height: 33px;
+      border: 4px solid #ee91a544;
+      border-top-color: #ee91a5;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 25px;
+      line-height: 1.3;
+    }
+
+    #description {
+      color: #cbbfc5;
       font-size: 15px;
+      line-height: 1.7;
+      margin: 0 0 24px;
     }
 
     .button {
-      display: inline-block;
+      display: block;
       width: 100%;
-      margin-top: 24px;
-      padding: 15px;
-      border-radius: 12px;
+      padding: 17px;
       background: #ee91a5;
       color: #171316;
-      font-weight: bold;
+      font-size: 15px;
+      font-weight: 700;
+      border: 0;
+      border-radius: 13px;
+      cursor: pointer;
       text-decoration: none;
+      transition: transform .2s, background .2s;
     }
 
-    .hidden { display: none; }
+    .button:hover {
+      background: #f5a7b8;
+      transform: translateY(-2px);
+    }
+
+    .button:disabled {
+      opacity: .7;
+      cursor: wait;
+      transform: none;
+    }
+
+    .secondary {
+      margin-top: 12px;
+      background: #342c32;
+      color: #f0c4cf;
+      border: 1px solid #51424a;
+    }
+
+    .secondary:hover {
+      background: #40343b;
+    }
+
+    .hint {
+      color: #91858c;
+      font-size: 12px;
+      margin: 24px 0 0;
+      line-height: 1.6;
+    }
+
+    @keyframes cardIn {
+      from {
+        opacity: 0;
+        transform: translateY(22px) scale(.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 #ee91a522;
+      }
+      50% {
+        box-shadow: 0 0 0 14px #ee91a500;
+      }
+    }
+
+    @keyframes pop {
+      0% {
+        opacity: 0;
+        transform: scale(.5);
+      }
+      65% {
+        transform: scale(1.15);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(8px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(5px); }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
   </style>
 </head>
+
 <body>
   <main class="card">
-    <div class="logo">GadLink</div>
+    <img
+      src="./assets/gadlink-icon-192.png"
+      class="logo"
+      alt="GadLink"
+    >
 
-    <h1 id="title">Подтверждение почты</h1>
-
-    <p id="status">
-      Проверяем ссылку подтверждения...
+    <p class="brand">GadLink</p>
+    <p class="subtitle">
+      Общайтесь и оставайтесь на связи
     </p>
 
-    <a id="home" class="button hidden" href="/">
-      Перейти в GadLink
+    <div id="symbol" class="symbol" aria-hidden="true">
+      ✉
+    </div>
+
+    <h1 id="title">Подтверди свою почту</h1>
+
+    <p id="description" role="status" aria-live="polite">
+      Нажми кнопку ниже, чтобы завершить регистрацию.
+    </p>
+
+    <button id="confirm-button" class="button" type="button">
+      Подтвердить почту
+    </button>
+
+    <a id="home-button" class="button secondary"
+       href="./" hidden>
+      Вернуться в GadLink
     </a>
+
+    <p class="hint" id="hint">
+      Аккаунт будет активирован только после подтверждения.
+    </p>
   </main>
 
   <script type="module">
-    import { createClient } from
-      "https://esm.sh/@supabase/supabase-js@2";
+    const params = new URLSearchParams(location.search);
 
-    // Вставь значения из существующего проекта GadLink
-    const SUPABASE_URL = "https://efvnyjvvijbwzaglxpbd.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_W9agBe00b6SuGj_n9a380g_D8Ij8NuK";
+    let tokenHash = params.get("token_hash");
+    const tokenType = params.get("type");
 
-    const supabase = createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY
-    );
-
+    const symbol = document.getElementById("symbol");
     const title = document.getElementById("title");
-    const status = document.getElementById("status");
-    const home = document.getElementById("home");
+    const description = document.getElementById("description");
+    const confirmButton = document.getElementById("confirm-button");
+    const homeButton = document.getElementById("home-button");
+    const hint = document.getElementById("hint");
 
-    async function confirmEmail() {
-      const params = new URLSearchParams(
-        window.location.search
+    // Убираем одноразовый токен из адресной строки.
+    if (tokenHash) {
+      history.replaceState(null, "", location.pathname);
+    }
+
+    function setState(state, heading, message) {
+      symbol.className = "symbol " + state;
+
+      symbol.textContent =
+        state === "success" ? "✓" :
+        state === "error" ? "!" :
+        state === "loading" ? "" : "✉";
+
+      title.textContent = heading;
+      description.textContent = message;
+    }
+
+    function showError(message, allowRetry = false) {
+      setState("error", "Не удалось подтвердить почту", message);
+
+      confirmButton.hidden = !allowRetry;
+      confirmButton.disabled = false;
+      confirmButton.textContent = "Повторить попытку";
+
+      homeButton.hidden = false;
+      hint.textContent =
+        "Если ссылка истекла, запроси новое письмо на странице входа.";
+    }
+
+    if (!tokenHash || tokenType !== "email") {
+      showError(
+        "Ссылка подтверждения отсутствует или недействительна. " +
+        "Открой последнее письмо от GadLink и перейди по ссылке."
+      );
+    }
+
+    confirmButton.addEventListener("click", async () => {
+      if (!tokenHash || tokenType !== "email") return;
+
+      confirmButton.disabled = true;
+      confirmButton.textContent = "Подтверждаем...";
+
+      homeButton.hidden = true;
+
+      setState(
+        "loading",
+        "Проверяем почту...",
+        "Проверяем ссылку и активируем аккаунт."
       );
 
-      const token_hash = params.get("token_hash");
-      const type = params.get("type");
-
-      if (!token_hash || type !== "email") {
-        title.textContent = "Ошибка подтверждения";
-        status.textContent =
-          "Ссылка недействительна. Запросите новое письмо.";
-        home.classList.remove("hidden");
-        return;
-      }
-
       try {
+        // Используем существующий Supabase-клиент GadLink.
+        const { supabase } = await import(
+          "./js/supabaseClient.js"
+        );
+
         const { error } = await supabase.auth.verifyOtp({
-          token_hash,
+          token_hash: tokenHash,
           type: "email"
         });
 
         if (error) throw error;
 
-        title.textContent = "Почта подтверждена!";
-        status.textContent =
-          "Аккаунт успешно активирован. Теперь можно войти в GadLink.";
+        tokenHash = null;
 
-        window.history.replaceState(
-          {},
-          "",
-          window.location.pathname
+        setState(
+          "success",
+          "Почта подтверждена!",
+          "Аккаунт успешно активирован. " +
+          "Перенаправляем тебя в GadLink."
         );
 
+        confirmButton.hidden = true;
+        homeButton.hidden = false;
+        hint.textContent = "Добро пожаловать в GadLink!";
+
+        setTimeout(() => {
+          window.location.replace("./");
+        }, 2200);
+
       } catch (error) {
-        console.error("Email confirmation:", error);
+        console.error("GadLink confirmation error:", error);
 
-        title.textContent = "Ошибка подтверждения";
-        status.textContent =
-          "Ссылка недействительна или срок её действия истёк. Запросите новое письмо.";
+        const message = (
+          String(error?.code || "") + " " +
+          String(error?.message || "")
+        ).toLowerCase();
+
+        if (
+          message.includes("network") ||
+          message.includes("fetch") ||
+          message.includes("load failed")
+        ) {
+          showError(
+            "Не удалось связаться с сервером. " +
+            "Проверь интернет и попробуй снова.",
+            true
+          );
+        } else {
+          showError(
+            "Ссылка недействительна, уже использована " +
+            "или срок её действия истёк. " +
+            "Запроси новое письмо подтверждения."
+          );
+        }
       }
-
-      home.classList.remove("hidden");
-    }
-
-    confirmEmail();
+    });
   </script>
 </body>
 </html>
