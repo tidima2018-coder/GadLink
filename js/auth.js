@@ -26,18 +26,14 @@ export async function handleAuthCallback(params = getCallbackParams()) {
 
   const callbackError = params.get("error_code") || params.get("error");
   if (callbackError) {
+    const existingSession = await getConfirmedSession();
+    if (existingSession) return existingSession;
     const error = new Error(params.get("error_description") || callbackError);
     error.code = callbackError;
     throw error;
   }
 
-  let signedInSession = null;
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === "SIGNED_IN") signedInSession = session;
-  });
-
   try {
-    let session = null;
     const code = params.get("code");
     const accessToken = params.get("access_token");
     const refreshToken = params.get("refresh_token");
@@ -47,7 +43,7 @@ export async function handleAuthCallback(params = getCallbackParams()) {
     if (code) {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
-      session = data.session;
+      return data.session;
     } else if (accessToken) {
       if (!refreshToken) throw new Error("В ссылке подтверждения отсутствует refresh token.");
       const { data, error } = await supabase.auth.setSession({
@@ -55,7 +51,7 @@ export async function handleAuthCallback(params = getCallbackParams()) {
         refresh_token: refreshToken
       });
       if (error) throw error;
-      session = data.session;
+      return data.session;
     } else if (tokenHash) {
       if (!["signup", "email"].includes(tokenType)) {
         throw new Error("Ссылка подтверждения имеет неверный тип. Запросите новое письмо.");
@@ -66,17 +62,21 @@ export async function handleAuthCallback(params = getCallbackParams()) {
         type: tokenType
       });
       if (error) throw error;
-      session = data.session;
+      return data.session;
     }
-
-    if (session && signedInSession && session.user?.id !== signedInSession.user?.id) {
-      throw new Error("Не удалось сохранить сессию после подтверждения почты.");
-    }
-
-    return session || signedInSession;
-  } finally {
-    subscription.unsubscribe();
+    return await getConfirmedSession();
+  } catch (error) {
+    const existingSession = await getConfirmedSession();
+    if (existingSession) return existingSession;
+    throw error;
   }
+}
+
+async function getConfirmedSession() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.user) return null;
+  const user = data.session.user;
+  return user.email_confirmed_at || user.confirmed_at ? data.session : null;
 }
 
 export function clearAuthCallback() {
