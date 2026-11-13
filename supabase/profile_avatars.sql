@@ -19,7 +19,6 @@ end
 $$;
 
 alter table public.profiles enable row level security;
-alter table storage.objects enable row level security;
 grant select on public.profiles to authenticated;
 
 -- The existing client uses public URLs for profile photos. Public read is limited
@@ -41,9 +40,11 @@ drop policy if exists gadlink_avatars_guard_insert on storage.objects;
 create policy gadlink_avatars_guard_insert on storage.objects
   as restrictive for insert to public
   with check (
-    public.gadlink_email_is_confirmed()
-    and bucket_id = 'avatars'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id <> 'avatars'
+    or (
+      public.gadlink_email_is_confirmed()
+      and (storage.foldername(name))[1] = (select auth.uid())::text
+    )
   );
 
 drop policy if exists gadlink_avatars_update on storage.objects;
@@ -64,14 +65,18 @@ drop policy if exists gadlink_avatars_guard_update on storage.objects;
 create policy gadlink_avatars_guard_update on storage.objects
   as restrictive for update to public
   using (
-    public.gadlink_email_is_confirmed()
-    and bucket_id = 'avatars'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id <> 'avatars'
+    or (
+      public.gadlink_email_is_confirmed()
+      and (storage.foldername(name))[1] = (select auth.uid())::text
+    )
   )
   with check (
-    public.gadlink_email_is_confirmed()
-    and bucket_id = 'avatars'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id <> 'avatars'
+    or (
+      public.gadlink_email_is_confirmed()
+      and (storage.foldername(name))[1] = (select auth.uid())::text
+    )
   );
 
 drop policy if exists gadlink_avatars_delete on storage.objects;
@@ -87,9 +92,11 @@ drop policy if exists gadlink_avatars_guard_delete on storage.objects;
 create policy gadlink_avatars_guard_delete on storage.objects
   as restrictive for delete to public
   using (
-    public.gadlink_email_is_confirmed()
-    and bucket_id = 'avatars'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id <> 'avatars'
+    or (
+      public.gadlink_email_is_confirmed()
+      and (storage.foldername(name))[1] = (select auth.uid())::text
+    )
   );
 
 -- Profiles are already discoverable by authenticated users in GadLink. This
