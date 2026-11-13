@@ -1,6 +1,6 @@
 import "./js/friends-ui.js";
 import { supabase } from "./js/supabaseClient.js";
-import { getPublicProfileNames } from "./js/friends.js";
+import { getPublicProfileNames, resolveAvatarUrl } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js?v=5";
 import { createVoiceCallController } from "./js/voice-calls.js";
 import { createVoiceRooms } from "./js/voice-rooms.js";
@@ -49,6 +49,8 @@ const communityDialogCloseTimers = new Map();
 let currentAbout = "";
 let currentAvatarUrl = null;
 let chatOverviewSubscription = null;
+let profileUpdatesChannel = null;
+let profileUpdatesOwnerId = null;
 const conversationOverviewRows = new Map();
 const conversationsById = new Map();
 const conversationUnreadCounts = new Map();
@@ -377,8 +379,10 @@ function addText(parent, tag, text) {
 
 function updateAvatarElement(avatar, profile, className) {
   avatar.className = className;
+  if (profile?.id) avatar.dataset.profileAvatarUserId = profile.id;
+  else delete avatar.dataset.profileAvatarUserId;
   avatar.textContent = (profile?.username || "Пользователь").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
-  const avatarUrl = safeUrl(profile?.avatar_url || "");
+  const avatarUrl = resolveAvatarUrl(profile?.avatar_url || "");
   if (avatarUrl) {
     const image = document.createElement("img");
     image.src = avatarUrl;
@@ -397,7 +401,7 @@ function createAvatar(profile, className) {
 function updateProfileAvatarPreview(value) {
   const image = byId("profile-avatar-preview-image");
   const placeholder = byId("profile-avatar-preview-placeholder");
-  const avatarUrl = value?.startsWith("blob:") ? value : safeUrl(value || "");
+  const avatarUrl = value?.startsWith("blob:") ? value : resolveAvatarUrl(value || "");
   const username = byId("profile-username").value.trim() || currentUsername || "Пользователь";
   placeholder.textContent = username.slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
   if (!avatarUrl) {
@@ -432,12 +436,81 @@ async function loadPublicNames(profileIds, statusId) {
   }
 }
 
+function applyPublicProfileUpdate(profile) {
+  if (!profile?.id) return;
+  const avatarUrl = resolveAvatarUrl(profile.avatar_url);
+  const publicProfile = { ...profile, avatar_url: avatarUrl || null };
+  if (profile.id === user?.id) {
+    currentUsername = profile.username?.trim() || currentUsername;
+    currentAvatarUrl = profile.avatar_url || null;
+    byId("settings-profile-name").textContent = currentUsername;
+    updateProfileAvatarPreview(currentAvatarUrl);
+  }
+  document.querySelectorAll("[data-profile-avatar-user-id]").forEach((element) => {
+    if (element.dataset.profileAvatarUserId === profile.id) {
+      updateAvatarElement(element, publicProfile, element.className);
+    }
+  });
+  document.querySelectorAll(".message-author[data-profile-user-id]").forEach((element) => {
+    if (element.dataset.profileUserId === profile.id) {
+      element.textContent = publicProfile.username || "Пользователь";
+    }
+  });
+  window.dispatchEvent(new CustomEvent("gadlink:profile-updated", { detail: publicProfile }));
+}
+
+async function subscribeToProfileUpdates(ownerId) {
+  if (profileUpdatesChannel && profileUpdatesOwnerId === ownerId) return;
+  if (profileUpdatesChannel) await supabase.removeChannel(profileUpdatesChannel);
+  profileUpdatesChannel = null;
+  profileUpdatesOwnerId = null;
+
+  const { data, error } = await supabase.auth.getSession();
+  const session = data?.session;
+  if (error) throw error;
+  if (!session?.access_token || session.user?.id !== ownerId) return;
+  await supabase.realtime.setAuth(session.access_token);
+
+  const channel = supabase
+    .channel("gadlink-profile-avatars", { config: { private: true } })
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "profiles"
+    }, (payload) => {
+      const profile = payload.new;
+      if (profile?.id) applyPublicProfileUpdate(profile);
+    });
+  profileUpdatesChannel = channel;
+  profileUpdatesOwnerId = ownerId;
+  channel.subscribe((status, channelError) => {
+    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      console.error("GadLink profile Realtime:", channelError || status);
+    }
+  });
+}
+
 function safeUrl(value) {
   try {
     const url = new URL(value);
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
   } catch {
     return "";
+  }
+}
+
+function ownedAvatarStoragePath(value, ownerId) {
+  const raw = String(value || "").trim();
+  if (raw.startsWith(`${ownerId}/`)) return raw;
+  try {
+    const pathname = new URL(raw).pathname;
+    const marker = "/storage/v1/object/public/avatars/";
+    const markerIndex = pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const path = decodeURIComponent(pathname.slice(markerIndex + marker.length));
+    return path.startsWith(`${ownerId}/`) ? path : null;
+  } catch {
+    return null;
   }
 }
 
@@ -458,6 +531,8 @@ function formatTime(value) {
 }
 
 async function saveProfile({ username, about, avatarUrl, avatarFile }) {
+  const previousAvatarPath = ownedAvatarStoragePath(avatarUrl, user.id);
+  let uploadedPath = null;
   if (avatarFile) {
     const extensions = {
       "image/jpeg": "jpg",
@@ -468,17 +543,28 @@ async function saveProfile({ username, about, avatarUrl, avatarFile }) {
     const extension = extensions[avatarFile.type];
     if (!extension) throw new Error("Используйте изображение JPG, PNG, WebP или GIF.");
 
-    const path = `${user.id}/${Date.now()}.${extension}`;
+    const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
     const { error: uploadError } = await supabase.storage
       .from("avatars")
       .upload(path, avatarFile, { contentType: avatarFile.type });
     if (uploadError) throw uploadError;
-    avatarUrl = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+    uploadedPath = path;
+    avatarUrl = path;
   }
 
   const profile = { id: user.id, username, about, avatar_url: avatarUrl };
   const { error } = await supabase.from("profiles").upsert(profile);
-  if (error) throw error;
+  if (error) {
+    if (uploadedPath) {
+      const { error: cleanupError } = await supabase.storage.from("avatars").remove([uploadedPath]);
+      if (cleanupError) console.error("GadLink avatar upload cleanup:", cleanupError);
+    }
+    throw error;
+  }
+  if (uploadedPath && previousAvatarPath && previousAvatarPath !== uploadedPath) {
+    const { error: removeError } = await supabase.storage.from("avatars").remove([previousAvatarPath]);
+    if (removeError) console.error("GadLink previous avatar cleanup:", removeError);
+  }
   return profile;
 }
 
@@ -829,6 +915,7 @@ function addMessage(container, message) {
       : null);
     if (author) {
       author.textContent = profile?.username || "Пользователь";
+      author.dataset.profileUserId = message.user_id;
     }
     const currentAvatar = existing?.querySelector(".message-avatar");
     if (currentAvatar) updateAvatarElement(currentAvatar, profile, "message-avatar");
@@ -847,6 +934,7 @@ function addMessage(container, message) {
   bubble.className = "message-bubble";
   const author = addText(bubble, "strong", profile?.username || "Пользователь");
   author.className = "message-author";
+  author.dataset.profileUserId = message.user_id;
   addText(bubble, "p", message.content).className = "message-content";
   const time = document.createElement("time");
   const createdAt = message.created_at ? new Date(message.created_at) : new Date();
@@ -1361,6 +1449,9 @@ async function loadApp() {
   }
   showAppStartupError("");
   showApp(true);
+  void subscribeToProfileUpdates(user.id).catch((error) => {
+    console.error("GadLink profile Realtime subscription:", error);
+  });
   await chatBackgroundController.setUser(user.id);
   reelsController ||= createReelsFeed({ supabase, getUser: () => user });
   await Promise.all([
@@ -1913,6 +2004,7 @@ byId("profile-form").addEventListener("submit", async (event) => {
       avatarFile: byId("profile-avatar-file").files[0]
     });
     syncProfileFields(profile);
+    applyPublicProfileUpdate(profile);
     byId("profile-avatar-file").value = "";
     setStatus("profile-status", "Профиль сохранён.");
   } catch (error) {
@@ -2267,6 +2359,9 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
+    if (profileUpdatesChannel) void supabase.removeChannel(profileUpdatesChannel);
+    profileUpdatesChannel = null;
+    profileUpdatesOwnerId = null;
     void voiceRoomsController.shutdown().catch((error) => {
       console.error("GadLink voice room auth cleanup:", error);
     });

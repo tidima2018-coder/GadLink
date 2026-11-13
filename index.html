@@ -126,6 +126,7 @@
             <label class="profile-avatar-picker" for="profile-avatar-file" aria-label="&#1042;&#1099;&#1073;&#1088;&#1072;&#1090;&#1100; &#1092;&#1086;&#1090;&#1086; &#1087;&#1088;&#1086;&#1092;&#1080;&#1083;&#1103;" title="&#1053;&#1072;&#1078;&#1084;&#1080;&#1090;&#1077;, &#1095;&#1090;&#1086;&#1073;&#1099; &#1089;&#1084;&#1077;&#1085;&#1080;&#1090;&#1100; &#1072;&#1074;&#1072;&#1090;&#1072;&#1088;">
               <img id="profile-avatar-preview-image" alt="" hidden>
               <span id="profile-avatar-preview-placeholder" aria-hidden="true">?</span>
+              <span class="profile-avatar-picker__edit" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.1 2.1 0 0 0-3-3L5.2 16.2 4 20Z"/></svg></span>
               <input id="profile-avatar-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
             </label>
             <strong id="settings-profile-name" class="profile-avatar-preview__name">&#1055;&#1088;&#1086;&#1092;&#1080;&#1083;&#1100;</strong>
@@ -354,11 +355,9 @@
         </section>
       </div>
     </div>
-    <button id="add-contact-button" class="add-contact-button" type="button" aria-label="Aддать друга" aria-haspopup="dialog" aria-controls="friend-add-dialog" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 5v14M5 12h14"></path>
-        </svg>
-      </button>
+    <button id="add-contact-button" class="add-contact-button" type="button" aria-label="Добавить друга" title="Найти друзей" aria-haspopup="dialog" aria-controls="friend-add-dialog" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V21"/><circle cx="9.5" cy="7" r="4"/><path d="M19 8v6m-3-3h6"/></svg>
+    </button>
     </div>
   </div>
 

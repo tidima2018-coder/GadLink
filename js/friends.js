@@ -1,6 +1,21 @@
 
 import { supabase } from "./supabaseClient.js";
 
+export function resolveAvatarUrl(value) {
+  const avatar = String(value || "").trim();
+  if (!avatar) return "";
+  try {
+    const url = new URL(avatar);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    const path = avatar.replace(/^\/+/, "").replace(/^avatars\//, "");
+    const [ownerId, ...segments] = path.split("/");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId || "") ||
+        !segments.length || segments.some((part) => !part || part === "." || part === "..")) return "";
+    return supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+  }
+}
+
 // Поиск пользователей по нику
 export async function searchUsers(username) {
   const { data, error } = await supabase.rpc(
@@ -12,7 +27,10 @@ export async function searchUsers(username) {
 
   if (error) throw error;
 
-  return data || [];
+  return (data || []).map((profile) => ({
+    ...profile,
+    avatar_url: resolveAvatarUrl(profile.avatar_url) || null
+  }));
 }
 
 export async function getPublicProfileNames(profileIds) {
@@ -31,7 +49,7 @@ export async function getPublicProfileNames(profileIds) {
       {
         id: profile.id,
         username: profile.username?.trim() || "Пользователь",
-        avatar_url: profile.avatar_url || null
+        avatar_url: resolveAvatarUrl(profile.avatar_url) || null
       }
     ])
   );
@@ -45,7 +63,7 @@ export async function getPublicProfileNames(profileIds) {
       if (avatarError) throw avatarError;
       for (const profile of avatarRows || []) {
         const existing = profilesById.get(profile.id);
-        if (existing) existing.avatar_url = profile.avatar_url || null;
+        if (existing) existing.avatar_url = resolveAvatarUrl(profile.avatar_url) || null;
       }
     } catch (error) {
       console.error("GadLink public profile avatars:", error);

@@ -234,6 +234,7 @@ if (
     const avatar = document.createElement("span");
     avatar.className = "friend-avatar";
     avatar.setAttribute("aria-hidden", "true");
+    if (profile?.id) avatar.dataset.profileAvatarUserId = profile.id;
 
     if (
       profile?.avatar_url &&
@@ -245,6 +246,10 @@ if (
       image.alt = "";
       image.referrerPolicy = "no-referrer";
       image.src = profile.avatar_url;
+      image.addEventListener("error", () => {
+        image.remove();
+        avatar.textContent = (profile?.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU");
+      }, { once: true });
 
       avatar.append(image);
     } else {
@@ -308,20 +313,23 @@ if (
       const identity = document.createElement("div");
       identity.className = "contact-identity";
 
+      const avatar = document.createElement("span");
+      avatar.className = "contact-avatar contact-avatar--placeholder";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = (profile.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU");
+      if (profile.id) avatar.dataset.profileAvatarUserId = profile.id;
       if (profile.avatar_url && /^https?:\/\//i.test(profile.avatar_url)) {
-        const avatar = document.createElement("img");
-        avatar.className = "contact-avatar";
-        avatar.src = profile.avatar_url;
-        avatar.alt = "";
-        avatar.referrerPolicy = "no-referrer";
-        identity.append(avatar);
-      } else {
-        const avatar = document.createElement("span");
-        avatar.className = "contact-avatar contact-avatar--placeholder";
-        avatar.setAttribute("aria-hidden", "true");
-        avatar.textContent = (profile.username || "?").slice(0, 1).toLocaleUpperCase();
-        identity.append(avatar);
+        const image = document.createElement("img");
+        image.src = profile.avatar_url;
+        image.alt = "";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("error", () => {
+          image.remove();
+          avatar.textContent = (profile.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU");
+        }, { once: true });
+        avatar.replaceChildren(image);
       }
+      identity.append(avatar);
 
       const details = document.createElement("span");
       details.className = "contact-details";
@@ -466,6 +474,17 @@ if (
       );
     }
   }
+
+  window.addEventListener("gadlink:profile-updated", (event) => {
+    const profile = event.detail;
+    if (!profile?.id) return;
+    if (state.profileById.has(profile.id)) state.profileById.set(profile.id, profile);
+    state.searchResults = state.searchResults.map((item) => item.id === profile.id ? { ...item, ...profile } : item);
+    if (state.profileById.has(profile.id) || state.searchResults.some((item) => item.id === profile.id)) {
+      renderRequestsAndFriends();
+      renderSearch();
+    }
+  });
 
   // Загружаем друзей из Supabase
   async function refreshFriends() {

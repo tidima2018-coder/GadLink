@@ -468,6 +468,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .contact-row { display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 2px; }
 .contact-identity { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 12px; }
 .contact-avatar { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: #f1b1bb; font-weight: 700; object-fit: cover; background: #343238; }
+.contact-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .contact-details { display: grid; min-width: 0; gap: 1px; }
 .contact-details strong { overflow: hidden; color: #f2f1f2; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .contact-details small { color: #99969d; font-size: 12px; }
@@ -2053,7 +2054,50 @@ is; white-space: nowrap; }
 .voice-call-sound-notice[hidden] { display: none; }
 .voice-call-sound-notice button { min-height: 38px; padding: 0 14px; color: #fff; border-color: rgba(240,173,183,.32); border-radius: 11px; background: #50333c; }
 .call-sound-settings { display: grid; gap: 10px; margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(30,29,32,.55); }
-.call-sound-settings summary { cursor: pointer; color: var(--text); font-weight: 600; }
+.call-sound-settings summary {
+  position: relative;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  padding: 0 52px 0 2px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.call-sound-settings summary::-webkit-details-marker { display: none; }
+.call-sound-settings summary::marker { content: ""; }
+.call-sound-settings summary::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(238,145,165,.38);
+  border-radius: 50%;
+  color: #f0a8b4;
+  background: rgba(238,145,165,.1);
+  box-shadow: 0 5px 16px rgba(0,0,0,.2);
+  content: "⌄";
+  font-size: 22px;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.call-sound-settings[open] summary::after {
+  content: "⌃";
+  transform: translateY(-50%);
+}
+.call-sound-settings summary:hover::after,
+.call-sound-settings summary:focus-visible::after {
+  border-color: rgba(238,145,165,.7);
+  color: #fff0f3;
+  background: rgba(238,145,165,.2);
+}
+.call-sound-settings summary:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; border-radius: 8px; }
 .call-sound-settings label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .call-sound-settings label:has(input[type="checkbox"]) { width: fit-content; margin: 0; }
 .call-sound-settings input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; accent-color: var(--accent); }
@@ -2083,7 +2127,7 @@ is; white-space: nowrap; }
 .call-ringtone-waves i:nth-child(4) { animation-delay: .45s; }
 @keyframes ringtone-wave { to { height: 14px; opacity: .65; } }
 @media (max-width: 480px) { .call-sound-settings { padding: 10px; } .call-ringtone-option { padding: 8px; } .call-ringtone-option__name { font-size: 12px; } }
-@media (prefers-reduced-motion: reduce) { .call-ringtone-upload, .call-ringtone-option { transition: none; } .call-ringtone-waves i { animation: none; height: 6px; } }
+@media (prefers-reduced-motion: reduce) { .call-ringtone-upload, .call-ringtone-option, .call-sound-settings summary::after { transition: none; } .call-ringtone-waves i { animation: none; height: 6px; } }
 #voice-call-timer { color: #f0adb7; font-variant-numeric: tabular-nums; font-size: 20px; }
 #voice-call-remote-audio { width: 1px; height: 1px; opacity: 0; }
 .voice-call-actions { display: flex; width: 100%; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
@@ -2151,6 +2195,7 @@ is; white-space: nowrap; }
   .friend-add-dialog,
   .friend-add-dialog__panel,
   .add-contact-button,
+  .profile-avatar-picker__edit,
   .reel-publish-dialog,
   .reel-publish-dialog__panel,
   .voice-call-dialog__panel { transition-duration: .01ms; }
@@ -3352,6 +3397,33 @@ select:focus-visible {
   -webkit-tap-highlight-color: transparent;
 }
 .profile-avatar-picker > img { position: absolute; inset: 0; z-index: 1; object-fit: cover; }
+.profile-avatar-picker__edit {
+  position: absolute;
+  z-index: 2;
+  right: 2px;
+  bottom: 2px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: #2b171d;
+  border: 2px solid #2a2228;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #f6b3c0, #e67f97);
+  box-shadow: 0 2px 8px rgba(0,0,0,.35);
+  pointer-events: none;
+  transition: transform .18s ease, filter .18s ease;
+}
+.profile-avatar-picker__edit svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.profile-avatar-picker:hover .profile-avatar-picker__edit { filter: brightness(1.08); transform: scale(1.06); }
 .profile-avatar-picker:hover { filter: brightness(1.08); }
 .profile-avatar-picker:focus-within { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
 .profile-avatar-preview__name { max-width: 100%; overflow-wrap: anywhere; font-size: 16px; }
