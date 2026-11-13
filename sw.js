@@ -1,4 +1,4 @@
-const CACHE_NAME = "gadlink-static-v29";
+const CACHE_NAME = "gadlink-static-v30";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -48,10 +48,17 @@ self.addEventListener("fetch", (event) => {
       url.pathname.includes("/rest/") || url.pathname.includes("/auth/") ||
       url.pathname.includes("/storage/") || url.pathname.includes("/functions/")) return;
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request, { cache: "no-cache" }).catch(async () =>
-      (await caches.match("./index.html")) || Response.error()));
-    return;
-  }
+  event.respondWith(
+    fetch(request, { cache: "no-cache" }).catch(async () => {
+      const page = url.pathname.endsWith("/confirm.html")
+        ? "./confirm.html"
+        : "./index.html";
+
+      return (await caches.match(page)) || Response.error();
+    })
+  );
+  return;
+}
   event.respondWith((async () => {
     try {
       const response = await fetch(request, { cache: "no-cache" });
