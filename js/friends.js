@@ -27,8 +27,23 @@ export async function searchUsers(username) {
 
   if (error) throw error;
 
-  return (data || []).map((profile) => ({
+  const profiles = data || [];
+  let aboutById = new Map();
+  if (profiles.length) {
+    try {
+      const { data: details, error: detailsError } = await supabase
+        .from("profiles")
+        .select("id,about")
+        .in("id", profiles.map((profile) => profile.id));
+      if (detailsError) throw detailsError;
+      aboutById = new Map((details || []).map((profile) => [profile.id, profile.about || ""]));
+    } catch (error) {
+      console.error("GadLink public profile details:", error);
+    }
+  }
+  return profiles.map((profile) => ({
     ...profile,
+    about: aboutById.get(profile.id) || profile.about || "",
     avatar_url: resolveAvatarUrl(profile.avatar_url) || null
   }));
 }
@@ -73,6 +88,19 @@ export async function getPublicProfileNames(profileIds) {
     if (!profilesById.has(id)) {
       profilesById.set(id, { id, username: "Пользователь", avatar_url: null });
     }
+  }
+  try {
+    const { data: profileDetails, error: detailsError } = await supabase
+      .from("profiles")
+      .select("id,about")
+      .in("id", ids);
+    if (detailsError) throw detailsError;
+    for (const profile of profileDetails || []) {
+      const existing = profilesById.get(profile.id);
+      if (existing) existing.about = profile.about || "";
+    }
+  } catch (error) {
+    console.error("GadLink public profile descriptions:", error);
   }
   return profilesById;
 }

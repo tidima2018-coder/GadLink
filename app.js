@@ -454,6 +454,7 @@ function applyPublicProfileUpdate(profile) {
   document.querySelectorAll(".message-author[data-profile-user-id]").forEach((element) => {
     if (element.dataset.profileUserId === profile.id) {
       element.textContent = publicProfile.username || "Пользователь";
+      makeMessageAuthorOpenProfile(element, profile.id, publicProfile);
     }
   });
   window.dispatchEvent(new CustomEvent("gadlink:profile-updated", { detail: publicProfile }));
@@ -547,19 +548,29 @@ async function saveProfile({ username, about, avatarUrl, avatarFile }) {
     const { error: uploadError } = await supabase.storage
       .from("avatars")
       .upload(path, avatarFile, { contentType: avatarFile.type });
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      console.error("GadLink avatar Storage upload:", uploadError);
+      throw new Error(`Не удалось загрузить аватарку в Storage: ${uploadError.message}`);
+    }
     uploadedPath = path;
     avatarUrl = path;
   }
 
   const profile = { id: user.id, username, about, avatar_url: avatarUrl };
-  const { error } = await supabase.from("profiles").upsert(profile);
-  if (error) {
+  const { data: savedProfile, error: profileError } = await supabase
+    .from("profiles")
+    .update({ username, about, avatar_url: avatarUrl })
+    .eq("id", user.id)
+    .select("id")
+    .maybeSingle();
+  if (profileError || !savedProfile) {
     if (uploadedPath) {
       const { error: cleanupError } = await supabase.storage.from("avatars").remove([uploadedPath]);
       if (cleanupError) console.error("GadLink avatar upload cleanup:", cleanupError);
     }
-    throw error;
+    const cause = profileError?.message || "The existing profile row was not found";
+    console.error("GadLink profiles update after avatar upload:", profileError || cause);
+    throw new Error(`Аватар загружен, но профиль profiles не обновился: ${cause}`);
   }
   if (uploadedPath && previousAvatarPath && previousAvatarPath !== uploadedPath) {
     const { error: removeError } = await supabase.storage.from("avatars").remove([previousAvatarPath]);
@@ -905,6 +916,30 @@ async function loadConversationHistory(conversationId, catchUp = false) {
   return true;
 }
 
+function makeMessageAuthorOpenProfile(author, userId, profile) {
+  author.dataset.profileUserId = userId;
+  author.dataset.profileAvatarUrl = profile?.avatar_url || "";
+  author.setAttribute("role", "button");
+  author.setAttribute("tabindex", "0");
+  author.setAttribute("aria-label", `Открыть профиль: ${author.textContent}`);
+  if (author.dataset.profileClickBound) return;
+  author.dataset.profileClickBound = "true";
+  const open = () => window.dispatchEvent(new CustomEvent("gadlink:open-chat-profile", {
+    detail: {
+      userId: author.dataset.profileUserId,
+      username: author.textContent,
+      avatarUrl: author.dataset.profileAvatarUrl,
+      opener: author
+    }
+  }));
+  author.addEventListener("click", open);
+  author.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    open();
+  });
+}
+
 function addMessage(container, message) {
   if (message.id && hasRenderedMessage(container, message.id)) {
     const existing = [...container.querySelectorAll("[data-message-id]")]
@@ -915,7 +950,7 @@ function addMessage(container, message) {
       : null);
     if (author) {
       author.textContent = profile?.username || "Пользователь";
-      author.dataset.profileUserId = message.user_id;
+      makeMessageAuthorOpenProfile(author, message.user_id, profile);
     }
     const currentAvatar = existing?.querySelector(".message-avatar");
     if (currentAvatar) updateAvatarElement(currentAvatar, profile, "message-avatar");
@@ -934,7 +969,7 @@ function addMessage(container, message) {
   bubble.className = "message-bubble";
   const author = addText(bubble, "strong", profile?.username || "Пользователь");
   author.className = "message-author";
-  author.dataset.profileUserId = message.user_id;
+  makeMessageAuthorOpenProfile(author, message.user_id, profile);
   addText(bubble, "p", message.content).className = "message-content";
   const time = document.createElement("time");
   const createdAt = message.created_at ? new Date(message.created_at) : new Date();
@@ -1737,7 +1772,12 @@ byId("add-contact-button").addEventListener("click", () => {
   window.dispatchEvent(new CustomEvent("gadlink:friend-add-open"));
   setFriendDialogOpen(true);
 });
+byId("friend-requests-find-friends").addEventListener("click", () => {
+  window.dispatchEvent(new CustomEvent("gadlink:friend-add-open"));
+  setFriendDialogOpen(true);
+});
 window.addEventListener("gadlink:friend-requests-open", () => setFriendDialogOpen(false, false));
+window.addEventListener("gadlink:friend-profile-open", () => setFriendDialogOpen(false, false));
 byId("friend-add-close").addEventListener("click", () => setFriendDialogOpen(false));
 document.querySelector(".friend-add-dialog__backdrop").addEventListener("click", () => setFriendDialogOpen(false));
 
@@ -1858,6 +1898,12 @@ byId("auth-form").querySelector('button[type="submit"]').addEventListener("click
 byId("auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   byId("auth-form").classList.add("auth-form--signup-primary");
+  setStatus("auth-status", "");
+  showResendButton(false);
+  if (appErrorToast.textContent.includes("Если адрес уже зарегистрирован")) {
+    appErrorToast.hidden = true;
+    appErrorToast.classList.remove("notice-dismissible");
+  }
   const submitButton = byId("auth-form").querySelector('button[type="submit"]');
   submitButton.disabled = true;
   try {
@@ -1916,7 +1962,14 @@ byId("sign-up").addEventListener("click", async () => {
       showApp(true);
       showAppStartupError(`Аккаунт создан и выполнен вход, но приложение загрузилось не полностью: ${error.message}`);
     } else {
-      setStatus("auth-status", getAuthErrorMessage(error));
+      const message = getAuthErrorMessage(error);
+      setStatus("auth-status", message);
+      if (message.includes("Если адрес уже зарегистрирован")) {
+        const status = byId("auth-status");
+        status.hidden = true;
+        status.classList.remove("auth-status--error");
+        status.replaceChildren();
+      }
     }
     showResendButton(error.canResend);
   } finally {

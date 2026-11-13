@@ -466,7 +466,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .contacts-panel > h3 { margin: 10px 0 18px; font-size: 20px; text-align: center; }
 .contacts-list { display: grid; gap: 5px; }
 .contact-row { display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 2px; }
-.contact-identity { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 12px; }
+.contact-identity { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; align-items: center; gap: 12px; padding: 0; border: 0; border-radius: 10px; color: inherit; background: transparent; box-shadow: none; text-align: left; cursor: pointer; }
+.contact-identity:hover:not(:disabled) { border-color: transparent; color: inherit; background: transparent; box-shadow: none; }
+.contact-identity:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
 .contact-avatar { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: #f1b1bb; font-weight: 700; object-fit: cover; background: #343238; }
 .contact-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .contact-details { display: grid; min-width: 0; gap: 1px; }
@@ -1092,6 +1094,9 @@ body:has(#auth-section:not([hidden])) main { position: relative; z-index: 1; dis
 #messages .message-item.is-own { justify-self: end; border-color: rgba(222,140,152,.22); border-bottom-right-radius: 5px; background: linear-gradient(145deg, #49323a, #30262d); }
 #messages .message-item.is-other { justify-self: start; border-bottom-left-radius: 5px; background: #252427; }
 #messages .message-author { color: #efabb5; font-size: 11px; }
+#messages .message-author[role="button"] { width: fit-content; cursor: pointer; }
+#messages .message-author[role="button"]:hover { text-decoration: underline; text-underline-offset: 2px; }
+#messages .message-author[role="button"]:focus-visible { border-radius: 3px; outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 #messages .message-content { margin: 0; color: #f2f0f2; white-space: pre-wrap; overflow-wrap: anywhere; }
 #messages .message-time { justify-self: end; color: #a8a2aa; font-size: 10px; }
 #message-form { display: flex; align-items: center; gap: 10px; }
@@ -1744,6 +1749,92 @@ is; white-space: nowrap; }
   transition: transform .2s ease;
 }
 .friend-add-dialog.is-open .friend-add-dialog__panel { transform: translateY(0) scale(1); }
+.public-profile-dialog {
+  position: fixed;
+  z-index: 130;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity .18s ease, visibility .18s;
+}
+.public-profile-dialog[hidden] { display: none !important; }
+.public-profile-dialog.is-open { visibility: visible; opacity: 1; }
+.public-profile-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(0,0,0,.7);
+  cursor: default;
+}
+.public-profile-dialog__backdrop:hover:not(:disabled) { border-color: transparent; background: rgba(0,0,0,.7); box-shadow: none; }
+.public-profile-dialog__panel {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: min(82dvh, 640px);
+  padding: clamp(22px, 6vw, 32px);
+  overflow-y: auto;
+  border: 1px solid rgba(238,145,165,.27);
+  border-radius: 24px;
+  background: linear-gradient(145deg, #29232a, #19171c 72%);
+  box-shadow: 0 24px 90px rgba(0,0,0,.58), inset 0 1px rgba(255,255,255,.035);
+  text-align: center;
+  transform: translateY(12px) scale(.98);
+  transition: transform .2s ease;
+}
+.public-profile-dialog.is-open .public-profile-dialog__panel { transform: translateY(0) scale(1); }
+.public-profile-dialog__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(238,145,165,.26);
+  border-radius: 50%;
+  color: #f0a8b4;
+  background: rgba(238,145,165,.08);
+}
+.public-profile-dialog__close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.public-profile__avatar {
+  position: relative;
+  width: clamp(96px, 26vw, 124px);
+  aspect-ratio: 1;
+  margin: 4px auto 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(240,173,183,.65);
+  border-radius: 50%;
+  color: #321a20;
+  background: linear-gradient(145deg, #f3b4be, #975467);
+  box-shadow: 0 12px 34px rgba(222,140,152,.22);
+  font-size: 38px;
+  font-weight: 750;
+}
+.public-profile__avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.public-profile-dialog__panel > h2 { max-width: 100%; margin: 0; overflow-wrap: anywhere; font-size: clamp(22px, 6vw, 28px); }
+.public-profile__about {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px;
+  background: rgba(12,11,14,.35);
+  text-align: left;
+}
+.public-profile__about h3 { margin: 0 0 8px; color: #f0a8b4; font-size: 13px; font-weight: 700; }
+.public-profile__about p { margin: 0; color: #d0c7ce; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
 .friend-add-dialog__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .friend-add-dialog__heading h2 { margin: 0; font-size: 20px; }
 .friend-add-dialog__heading button { width: 38px; min-height: 38px; padding: 0; font-size: 24px; }
@@ -1753,6 +1844,85 @@ is; white-space: nowrap; }
 #friend-search-form button { flex: 0 0 auto; color: var(--accent-ink); border-color: transparent; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); }
 #friend-status { min-height: 1.5em; margin: 12px 0 0; color: #c8a9af; font-size: 13px; overflow-wrap: anywhere; }
 #friend-search-results { display: grid; gap: 8px; }
+#friend-add-dialog .friend-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(238,145,165,.18);
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(47,38,46,.92), rgba(31,28,34,.96));
+}
+#friend-add-dialog .friend-person {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+#friend-add-dialog .friend-person:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+}
+#friend-add-dialog .friend-avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid rgba(238,145,165,.3);
+  border-radius: 50%;
+  color: #f4c4cd;
+  background: linear-gradient(145deg, #67404d, #302832);
+}
+#friend-add-dialog .friend-avatar__image { width: 100%; height: 100%; object-fit: cover; }
+#friend-add-dialog .friend-username {
+  min-width: 0;
+  color: #f4edf1;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+#friend-add-dialog .friend-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+#friend-add-dialog .friend-actions button {
+  min-width: 96px;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 1px solid rgba(238,145,165,.34);
+  border-radius: 12px;
+  color: #f5c3cd;
+  background: rgba(238,145,165,.1);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+#friend-add-dialog .friend-actions button:hover:not(:disabled) {
+  border-color: rgba(238,145,165,.62);
+  color: #fff5f7;
+  background: rgba(238,145,165,.18);
+}
+#friend-add-dialog .friend-actions button:disabled { opacity: .62; }
+@media (max-width: 380px) {
+  .friend-add-dialog__panel { padding: 16px; }
+  #friend-add-dialog .friend-item { gap: 8px; padding: 9px; }
+  #friend-add-dialog .friend-person { gap: 8px; }
+  #friend-add-dialog .friend-avatar { width: 36px; height: 36px; flex-basis: 36px; }
+  #friend-add-dialog .friend-actions button { min-width: 84px; padding: 0 10px; }
+}
 .reel-publish-dialog {
   position: fixed;
   z-index: 110;
@@ -2072,8 +2242,8 @@ is; white-space: nowrap; }
   position: absolute;
   top: 50%;
   right: 0;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(238,145,165,.38);
@@ -2081,14 +2251,15 @@ is; white-space: nowrap; }
   color: #f0a8b4;
   background: rgba(238,145,165,.1);
   box-shadow: 0 5px 16px rgba(0,0,0,.2);
-  content: "⌄";
-  font-size: 22px;
+  content: "+";
+  font-size: 26px;
+  font-weight: 400;
   line-height: 1;
   transform: translateY(-50%);
   transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
 }
 .call-sound-settings[open] summary::after {
-  content: "⌃";
+  content: "\2212";
   transform: translateY(-50%);
 }
 .call-sound-settings summary:hover::after,
@@ -2128,6 +2299,7 @@ is; white-space: nowrap; }
 @keyframes ringtone-wave { to { height: 14px; opacity: .65; } }
 @media (max-width: 480px) { .call-sound-settings { padding: 10px; } .call-ringtone-option { padding: 8px; } .call-ringtone-option__name { font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .call-ringtone-upload, .call-ringtone-option, .call-sound-settings summary::after { transition: none; } .call-ringtone-waves i { animation: none; height: 6px; } }
+@media (prefers-reduced-motion: reduce) { .public-profile-dialog, .public-profile-dialog__panel { transition-duration: .01ms; } }
 #voice-call-timer { color: #f0adb7; font-variant-numeric: tabular-nums; font-size: 20px; }
 #voice-call-remote-audio { width: 1px; height: 1px; opacity: 0; }
 .voice-call-actions { display: flex; width: 100%; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
@@ -2971,6 +3143,20 @@ button.community-dialog__backdrop:active:not(:disabled) {
 .friend-requests-panel .friends-subsection > h3 { padding-bottom: 12px; }
 #friend-requests { gap: 10px; }
 #friend-requests .friend-item { margin: 0; }
+.friend-requests-find-button {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 12px;
+  border: 1px solid rgba(238,145,165,.34);
+  border-radius: 12px;
+  color: #f0a8b4;
+  background: rgba(238,145,165,.1);
+}
+.friend-requests-find-button:hover:not(:disabled) {
+  border-color: rgba(238,145,165,.65);
+  color: #fff0f3;
+  background: rgba(238,145,165,.18);
+}
 #friends-section > .contacts-panel {
   min-height: 0;
   margin: 0 auto;

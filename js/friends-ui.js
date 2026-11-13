@@ -27,6 +27,11 @@ const requestsToggle = document.getElementById("friend-requests-toggle");
 const requestsPanel = document.getElementById("friend-requests-panel");
 const requestsCount = document.getElementById("friend-requests-count");
 const navRequestsCount = document.getElementById("friend-requests-nav-count");
+const publicProfileDialog = document.getElementById("public-profile-dialog");
+const publicProfileName = document.getElementById("public-profile-name");
+const publicProfileAbout = document.getElementById("public-profile-about");
+const publicProfileAvatarImage = document.getElementById("public-profile-avatar-image");
+const publicProfileAvatarPlaceholder = document.getElementById("public-profile-avatar-placeholder");
 
 if (
   section &&
@@ -39,7 +44,12 @@ if (
   requestsToggle &&
   requestsPanel &&
   requestsCount &&
-  navRequestsCount
+  navRequestsCount &&
+  publicProfileDialog &&
+  publicProfileName &&
+  publicProfileAbout &&
+  publicProfileAvatarImage &&
+  publicProfileAvatarPlaceholder
 ) {
   const state = {
     userId: null,
@@ -54,6 +64,107 @@ if (
   let friendshipsSessionVersion = 0;
   let friendshipsChannelTransition = Promise.resolve();
   let friendsRefreshTimer = null;
+  let publicProfileOpener = null;
+  let publicProfileUserId = null;
+  let publicProfileCloseTimer = null;
+  let publicProfileRequestId = 0;
+
+  function closePublicProfile(restoreFocus = true) {
+    publicProfileRequestId += 1;
+    clearTimeout(publicProfileCloseTimer);
+    publicProfileDialog.classList.remove("is-open");
+    publicProfileDialog.setAttribute("inert", "");
+    publicProfileCloseTimer = setTimeout(() => {
+      publicProfileDialog.hidden = true;
+      publicProfileDialog.removeAttribute("inert");
+      publicProfileCloseTimer = null;
+    }, 180);
+    if (restoreFocus) {
+      const focusTarget = publicProfileOpener?.closest("[hidden]")
+        ? document.getElementById("add-contact-button")
+        : publicProfileOpener;
+      if (focusTarget?.isConnected) focusTarget.focus();
+    }
+    publicProfileOpener = null;
+    publicProfileUserId = null;
+  }
+
+  function setPublicProfileAvatar(profile) {
+    publicProfileAvatarPlaceholder.textContent = (profile?.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
+    publicProfileAvatarPlaceholder.hidden = false;
+    publicProfileAvatarImage.onload = null;
+    publicProfileAvatarImage.onerror = null;
+    publicProfileAvatarImage.hidden = true;
+    publicProfileAvatarImage.removeAttribute("src");
+    if (profile?.avatar_url && /^https?:\/\//i.test(profile.avatar_url)) {
+      publicProfileAvatarImage.onload = () => {
+        publicProfileAvatarImage.hidden = false;
+        publicProfileAvatarPlaceholder.hidden = true;
+      };
+      publicProfileAvatarImage.onerror = () => {
+        publicProfileAvatarImage.hidden = true;
+        publicProfileAvatarPlaceholder.hidden = false;
+      };
+      publicProfileAvatarImage.src = profile.avatar_url;
+    }
+  }
+
+  async function openPublicProfile(profile, opener) {
+    if (!profile?.id) return;
+    const requestId = ++publicProfileRequestId;
+    publicProfileUserId = profile.id;
+    publicProfileOpener = opener instanceof HTMLElement ? opener : document.activeElement;
+    publicProfileName.textContent = profile.username?.trim() || "Пользователь";
+    publicProfileAbout.textContent = profile.about === undefined
+      ? "Загружаем информацию о себе…"
+      : profile.about?.trim() || "Информация о себе не указана";
+    setPublicProfileAvatar(profile);
+    window.dispatchEvent(new CustomEvent("gadlink:friend-profile-open"));
+    publicProfileDialog.hidden = false;
+    publicProfileDialog.removeAttribute("inert");
+    requestAnimationFrame(() => publicProfileDialog.classList.add("is-open"));
+    publicProfileDialog.querySelector(".public-profile-dialog__close")?.focus();
+    if (profile.about === undefined) {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("about")
+          .eq("id", profile.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (requestId === publicProfileRequestId && !publicProfileDialog.hidden) {
+          publicProfileAbout.textContent = data?.about?.trim() || "Информация о себе не указана";
+        }
+      } catch (error) {
+        console.error("GadLink public profile details:", error);
+        if (requestId === publicProfileRequestId && !publicProfileDialog.hidden) {
+          publicProfileAbout.textContent = "Не удалось загрузить описание профиля.";
+        }
+      }
+    }
+  }
+
+  window.addEventListener("gadlink:open-chat-profile", (event) => {
+    const details = event.detail || {};
+    if (!details.userId) return;
+    const cachedProfile = state.profileById.get(details.userId) || {};
+    void openPublicProfile({
+      ...cachedProfile,
+      id: details.userId,
+      username: cachedProfile.username || details.username,
+      avatar_url: cachedProfile.avatar_url || details.avatarUrl || null
+    }, details.opener);
+  });
+
+  publicProfileDialog.querySelectorAll("[data-public-profile-close]").forEach((button) => {
+    button.addEventListener("click", () => closePublicProfile());
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !publicProfileDialog.hidden) {
+      event.preventDefault();
+      closePublicProfile();
+    }
+  });
 
   function updateIncomingRequestBadges(count) {
     const label = count > 99 ? "99+" : String(count);
@@ -121,11 +232,51 @@ if (
       color: #f3f5ff;
     }
 
+    #friends-section .friend-item--search {
+      padding: 13px;
+      border-color: rgba(238,145,165,.17);
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(47,38,46,.92), rgba(31,28,34,.96));
+      transition: border-color .18s ease, transform .18s ease, background .18s ease;
+    }
+    #friends-section .friend-item--search:hover {
+      border-color: rgba(238,145,165,.42);
+      background: linear-gradient(135deg, rgba(58,43,53,.96), rgba(35,30,36,.98));
+      transform: translateY(-1px);
+    }
+
     #friends-section .friend-person {
       display: flex;
+      flex: 1 1 auto;
       align-items: center;
       min-width: 0;
       gap: 12px;
+      padding: 0;
+      border: 0;
+      border-radius: 10px;
+      color: inherit;
+      background: transparent;
+      box-shadow: none;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    #friends-section .friend-person:hover:not(:disabled) {
+      color: inherit;
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+    }
+    #friends-section .friend-person:focus-visible {
+      outline: 2px solid #ee91a5;
+      outline-offset: 3px;
+    }
+    #friends-section .friend-item--search .friend-person::after {
+      margin-left: auto;
+      color: #d99aa8;
+      content: "›";
+      font-size: 24px;
+      line-height: 1;
     }
 
     #friends-section .friend-avatar {
@@ -136,7 +287,9 @@ if (
       overflow: hidden;
       border-radius: 50%;
       place-items: center;
-      background: #4d587b;
+      border: 1px solid rgba(238,145,165,.3);
+      color: #f4c4cd;
+      background: linear-gradient(145deg, #67404d, #302832);
     }
 
     #friends-section .friend-avatar__image {
@@ -148,6 +301,8 @@ if (
 
     #friends-section .friend-username {
       overflow-wrap: anywhere;
+      font-size: 15px;
+      font-weight: 700;
     }
 
     #friends-section .friend-actions {
@@ -224,12 +379,15 @@ if (
   }
 
   // Карточка пользователя
-  function personCard(profile, actions = []) {
+  function personCard(profile, actions = [], variant = "default") {
     const card = document.createElement("div");
-    card.className = "friend-item";
+    card.className = `friend-item${variant === "search" ? " friend-item--search" : ""}`;
 
-    const person = document.createElement("div");
+    const person = document.createElement("button");
+    person.type = "button";
     person.className = "friend-person";
+    person.setAttribute("aria-label", `Открыть профиль: ${profile?.username || "Пользователь"}`);
+    person.addEventListener("click", () => openPublicProfile(profile, person));
 
     const avatar = document.createElement("span");
     avatar.className = "friend-avatar";
@@ -310,8 +468,11 @@ if (
     for (const { link, profile } of friends) {
       const row = document.createElement("article");
       row.className = "contact-row";
-      const identity = document.createElement("div");
+      const identity = document.createElement("button");
+      identity.type = "button";
       identity.className = "contact-identity";
+      identity.setAttribute("aria-label", `Открыть профиль: ${profile.username || "Пользователь"}`);
+      identity.addEventListener("click", () => openPublicProfile(profile, identity));
 
       const avatar = document.createElement("span");
       avatar.className = "contact-avatar contact-avatar--placeholder";
@@ -469,9 +630,7 @@ if (
         });
       }
 
-      resultsBox.append(
-        personCard(person, [action])
-      );
+      resultsBox.append(personCard(person, [action], "search"));
     }
   }
 
@@ -480,6 +639,13 @@ if (
     if (!profile?.id) return;
     if (state.profileById.has(profile.id)) state.profileById.set(profile.id, profile);
     state.searchResults = state.searchResults.map((item) => item.id === profile.id ? { ...item, ...profile } : item);
+    if (publicProfileUserId === profile.id && !publicProfileDialog.hidden) {
+      publicProfileName.textContent = profile.username?.trim() || "Пользователь";
+      if (profile.about !== undefined) {
+        publicProfileAbout.textContent = profile.about?.trim() || "Информация о себе не указана";
+      }
+      setPublicProfileAvatar(profile);
+    }
     if (state.profileById.has(profile.id) || state.searchResults.some((item) => item.id === profile.id)) {
       renderRequestsAndFriends();
       renderSearch();
