@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -134,6 +134,7 @@
           <span aria-hidden="true">⚙</span><span>Настройки уведомлений</span><span aria-hidden="true">›</span>
         </button>
         <form id="profile-form">
+          <label class="activity-privacy"><input id="show-online-status" type="checkbox" checked> Показывать сетевой статус</label>
           <div class="profile-avatar-preview" aria-live="polite">
             <label class="profile-avatar-picker" for="profile-avatar-file" aria-label="&#1042;&#1099;&#1073;&#1088;&#1072;&#1090;&#1100; &#1092;&#1086;&#1090;&#1086; &#1087;&#1088;&#1086;&#1092;&#1080;&#1083;&#1103;" title="&#1053;&#1072;&#1078;&#1084;&#1080;&#1090;&#1077;, &#1095;&#1090;&#1086;&#1073;&#1099; &#1089;&#1084;&#1077;&#1085;&#1080;&#1090;&#1100; &#1072;&#1074;&#1072;&#1090;&#1072;&#1088;">
               <img id="profile-avatar-preview-image" alt="" hidden>
@@ -497,7 +498,6 @@
       <p id="voice-call-peer-state" class="voice-call-peer-state" hidden></p>
       <p id="voice-call-quality" class="voice-call-quality" aria-live="polite">Сеть: подключение</p>
       <time id="voice-call-timer" hidden>00:00</time>
-      <audio id="voice-call-remote-audio" autoplay playsinline></audio>
       <div id="voice-call-incoming-actions" class="voice-call-actions" hidden>
         <button id="voice-call-accept" class="voice-call-accept" type="button">Принять</button>
         <button id="voice-call-reject" class="voice-call-end" type="button">Отклонить</button>
@@ -506,18 +506,20 @@
         <button id="voice-call-mute" type="button" aria-pressed="false">Выключить микрофон</button>
         <button id="voice-call-hold" type="button" aria-pressed="false">Удержать</button>
         <button id="voice-call-output-toggle" type="button" aria-pressed="false">Выключить звук</button>
-        <label class="voice-call-volume" for="voice-call-volume">Звук
-          <input id="voice-call-volume" type="range" min="0" max="1" step="0.05" value="1">
-        </label>
-        <label class="voice-call-device" for="voice-call-input-device">Микрофон
-          <select id="voice-call-input-device"><option value="">По умолчанию</option></select>
-        </label>
-        <label class="voice-call-device" for="voice-call-output-device">Вывод звука
-          <select id="voice-call-output-device"><option value="">По умолчанию</option></select>
-        </label>
+        <details class="voice-call-audio-settings">
+          <summary>Настройки звука</summary>
+          <label class="voice-call-volume" for="voice-call-volume">Звук
+            <input id="voice-call-volume" type="range" min="0" max="1" step="0.05" value="1">
+          </label>
+          <label class="voice-call-device" for="voice-call-input-device">Микрофон
+            <select id="voice-call-input-device"><option value="">По умолчанию</option></select>
+          </label>
+          <label class="voice-call-device" for="voice-call-output-device">Вывод звука
+            <select id="voice-call-output-device"><option value="">По умолчанию</option></select>
+          </label>
+        </details>
         <button id="voice-call-profile" type="button">Профиль</button>
         <button id="voice-call-chat" type="button">Открыть чат</button>
-        <button id="voice-call-minimize-active" type="button">Свернуть</button>
         <button id="voice-call-hangup" class="voice-call-end" type="button">Завершить звонок</button>
       </div>
       <div id="voice-call-error-actions" class="voice-call-actions" hidden>
@@ -525,6 +527,7 @@
       </div>
     </div>
   </div>
+  <audio id="voice-call-remote-audio" autoplay playsinline></audio>
   <div id="voice-call-minimized" class="voice-call-minimized" hidden>
     <span id="voice-call-minimized-name">Звонок</span>
     <time id="voice-call-minimized-timer">00:00</time>
@@ -693,6 +696,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=20"></script>
+  <script type="module" src="app.js?v=23"></script>
 </body>
 </html>

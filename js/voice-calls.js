@@ -644,6 +644,9 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     dialog.hidden = true;
     dialog.setAttribute("aria-modal", "false");
     byId("voice-call-minimized-name").textContent = activeCall.username || "Звонок";
+    byId("voice-call-minimized-timer").textContent = activeCall.connected
+      ? byId("voice-call-timer").textContent
+      : activeCall.outgoing ? "Звоним…" : "Входящий звонок";
     byId("voice-call-minimized").hidden = false;
   }
 
@@ -653,6 +656,16 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     dialog.hidden = false;
     dialog.setAttribute("aria-modal", "true");
     dialog.classList.remove("is-minimized");
+  }
+
+  function endActiveCall() {
+    if (!activeCall) return;
+    if (!activeCall.outgoing && !activeCall.accepted) {
+      void rejectCall();
+      return;
+    }
+    void broadcast(activeCall.accepted ? "ended" : "cancelled")
+      .finally(() => finishCall("Звонок завершён."));
   }
 
   function requestProfile() {
@@ -1744,10 +1757,10 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
   });
   byId("voice-call-accept").addEventListener("click", () => void acceptCall());
   byId("voice-call-reject").addEventListener("click", () => void rejectCall());
-  byId("voice-call-hangup").addEventListener("click", () => {
-    void broadcast(activeCall?.accepted ? "ended" : "cancelled")
-      .finally(() => finishCall("Звонок завершён."));
-  });
+  byId("voice-call-hangup").addEventListener("click", endActiveCall);
+  byId("voice-call-minimize").addEventListener("click", minimizeCall);
+  byId("voice-call-return").addEventListener("click", restoreCall);
+  byId("voice-call-minimized-end").addEventListener("click", endActiveCall);
   byId("voice-call-close").addEventListener("click", hideCallDialog);
   byId("voice-call-mute").addEventListener("click", toggleMute);
   byId("voice-call-volume").addEventListener("input", (event) => {
@@ -1829,6 +1842,7 @@ export function createVoiceCallController({ supabase, getUser, getPublicProfileN
     if (document.visibilityState === "visible") restoreVoiceInbox();
   });
   window.addEventListener("focus", restoreVoiceInbox);
+  window.addEventListener("gadlink:resync", restoreVoiceInbox);
   window.addEventListener("beforeunload", () => {
     if (!activeCall) return;
     for (const track of activeCall.localStream?.getTracks() || []) track.stop();

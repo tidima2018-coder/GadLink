@@ -220,6 +220,18 @@ export function createReelsFeed({ supabase, getUser }) {
     card.querySelector('[data-count="likes"]').textContent = new Intl.NumberFormat("ru-RU").format(likes.count ?? 0);
     card.querySelector('[data-count="comments"]').textContent = new Intl.NumberFormat("ru-RU").format(comments.count ?? 0);
     card.querySelector('[data-count="reposts"]').textContent = new Intl.NumberFormat("ru-RU").format(reposts.count ?? 0);
+    if (card.dataset.postId) {
+      const { data, error } = await supabase.from("reel_posts").select("view_count").eq("id", card.dataset.postId).maybeSingle();
+      if (!error && statsRequestIds.get(path) === requestId && card.isConnected) {
+        let counter = card.querySelector(".reel-view-count");
+        if (!counter) {
+          counter = document.createElement("small");
+          counter.className = "reel-view-count";
+          card.querySelector(".reel-caption").append(counter);
+        }
+        counter.textContent = `Просмотры: ${new Intl.NumberFormat("ru-RU").format(data?.view_count || 0)}`;
+      }
+    }
     const likeButton = card.querySelector('[data-action="like"]');
     likeButton.classList.toggle("is-active", Boolean(liked.data?.length));
     likeButton.setAttribute("aria-pressed", String(Boolean(liked.data?.length)));
@@ -238,7 +250,7 @@ export function createReelsFeed({ supabase, getUser }) {
     const changedPath = payload.new?.reel_path || payload.old?.reel_path;
     const paths = changedPath
       ? [changedPath]
-      : payload.table === "reel_comments" && payload.eventType === "DELETE"
+      : payload.eventType === "DELETE"
         ? [activePath, commentsPath].filter(Boolean)
         : [];
     const relevantPaths = [...new Set(paths)]
@@ -354,7 +366,10 @@ export function createReelsFeed({ supabase, getUser }) {
     if (!file) return;
     const existing = findPostCard(file.postId);
     if (existing) {
-      if (payload.eventType === "UPDATE") {
+      if (payload.eventType === "UPDATE" && (file.path === activePath || file.path === commentsPath)) {
+        scheduleInteractionRefresh({ new: { reel_path: file.path } });
+      }
+      if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
         existing.dataset.search = [
           file.path, file.title, file.description, ...(file.hashtags || [])
         ].filter(Boolean).join(" ").toLocaleLowerCase();
@@ -398,7 +413,7 @@ export function createReelsFeed({ supabase, getUser }) {
     if (postsChannel) void supabase.removeChannel(postsChannel);
     postsOwnerId = owner;
     postsChannel = supabase
-      .channel(`reel-posts-${owner}`)
+      .channel(`reel-posts-${owner}`, { config: { private: true } })
       .on("postgres_changes", {
         event: "*",
         schema: "public",
@@ -420,7 +435,7 @@ export function createReelsFeed({ supabase, getUser }) {
     if (interactionsChannel) void supabase.removeChannel(interactionsChannel);
     interactionsOwnerId = owner;
     interactionsChannel = supabase
-      .channel(`reel-interactions-${owner}`)
+      .channel(`reel-interactions-${owner}`, { config: { private: true } })
       .on("postgres_changes", {
         event: "*",
         schema: "public",
@@ -437,7 +452,7 @@ export function createReelsFeed({ supabase, getUser }) {
         table: "reel_saves"
       }, (payload) => {
         const row = payload.new || payload.old;
-        if (row?.user_id === owner) scheduleInteractionRefresh(payload);
+        if (!row?.user_id || row.user_id === owner) scheduleInteractionRefresh(payload);
       })
       .on("postgres_changes", {
         event: "*",
@@ -1236,6 +1251,16 @@ export function createReelsFeed({ supabase, getUser }) {
 
   async function activateCard(card) {
     if (!sectionActive || document.hidden || card.hidden) return;
+    if (card.dataset.postId && card.dataset.viewRecordedFor !== userId()) {
+      const owner = userId();
+      card.dataset.viewRecordedFor = owner || "";
+      void supabase.rpc("gadlink_record_reel_view", { target_post_id: card.dataset.postId }).then(({ error }) => {
+        if (error && card.dataset.viewRecordedFor === owner) {
+          delete card.dataset.viewRecordedFor;
+          console.warn("GadLink reel view:", error);
+        }
+      });
+    }
     const mediaState = mediaByCard.get(card);
     const media = mediaState.elements[mediaState.index];
     const video = media instanceof HTMLVideoElement ? media : null;
@@ -1793,6 +1818,11 @@ export function createReelsFeed({ supabase, getUser }) {
     }
   });
   window.addEventListener("pagehide", () => pauseAll());
+  window.addEventListener("gadlink:resync", () => {
+    if (!sectionActive || !userId()) return;
+    void syncPosts();
+    scheduleInteractionRefresh({ eventType: "DELETE" });
+  });
   window.addEventListener("pageshow", () => {
     if (!document.hidden && !document.getElementById("reels-section").hidden && activePath) {
       const card = cardsByPath.get(activePath);

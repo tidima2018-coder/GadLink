@@ -100,6 +100,7 @@ if (
   }
 
   function setPublicProfileAvatar(profile) {
+    if (profile?.id) publicProfileAvatarImage.parentElement.dataset.profileAvatarUserId = profile.id;
     publicProfileAvatarPlaceholder.textContent = (profile?.username || "?").trim().slice(0, 1).toLocaleUpperCase("ru-RU") || "?";
     publicProfileAvatarPlaceholder.hidden = false;
     publicProfileAvatarImage.onload = null;
@@ -453,6 +454,13 @@ if (
   function setStatus(message) {
     statusBox.textContent = "";
     if (message) window.dispatchEvent(new CustomEvent("gadlink:activity-error", { detail: { message } }));
+  }
+
+  function setFriendSearchStatus(message, stateName = "") {
+    statusBox.textContent = message;
+    statusBox.classList.remove("is-loading", "is-found", "is-empty", "is-error");
+    if (stateName) statusBox.classList.add(`is-${stateName}`);
+    statusBox.setAttribute("aria-busy", stateName === "loading" ? "true" : "false");
   }
 
   // Создание кнопки
@@ -880,7 +888,7 @@ if (
     const activateFriendshipsChannel = () => {
       if (sessionVersion !== friendshipsSessionVersion || friendshipsChannelUserId !== userId) return;
       friendshipsChannel = supabase
-        .channel(`friendships-${userId}`)
+        .channel(`friendships-${userId}`, { config: { private: true } })
         .on("postgres_changes", {
           event: "*",
           schema: "public",
@@ -908,6 +916,7 @@ if (
   });
 
   window.addEventListener("online", scheduleFriendsRefresh);
+  window.addEventListener("gadlink:resync", scheduleFriendsRefresh);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") scheduleFriendsRefresh();
   });
@@ -917,10 +926,22 @@ if (
     event.preventDefault();
 
     const query = searchInput.value.trim();
+    const submitButton = searchForm.querySelector('button[type="submit"]');
 
-    if (!query) return;
+    if (!query || submitButton?.disabled) {
+      if (!query) setFriendSearchStatus("Введите ник, чтобы начать поиск.", "error");
+      return;
+    }
 
-    setStatus("Ищем пользователей...");
+    const originalButtonText = submitButton?.textContent || "Найти";
+    const startedAt = Date.now();
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.classList.add("is-loading");
+      submitButton.setAttribute("aria-busy", "true");
+      submitButton.textContent = "Ищем…";
+    }
+    setFriendSearchStatus("Ищем пользователей…", "loading");
     resultsBox.replaceChildren();
 
     try {
@@ -953,19 +974,26 @@ if (
       });
 
       renderSearch();
-
-      setStatus(
-        state.searchResults.length
-          ? ""
-          : "Пользователи не найдены."
+      const count = state.searchResults.length;
+      setFriendSearchStatus(
+        count ? `Найдено пользователей: ${count}.` : "Совпадений не найдено. Попробуйте другой ник.",
+        count ? "found" : "empty"
       );
 
     } catch (error) {
       console.error("GadLink friends:", error);
-
-      setStatus(
-        `Ошибка поиска: ${error.message}`
-      );
+      setFriendSearchStatus("Не удалось выполнить поиск. Попробуйте ещё раз.", "error");
+    } finally {
+      const remainingLoadingTime = Math.max(0, 320 - (Date.now() - startedAt));
+      if (remainingLoadingTime) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingLoadingTime));
+      }
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.classList.remove("is-loading");
+        submitButton.removeAttribute("aria-busy");
+        submitButton.textContent = originalButtonText;
+      }
     }
   });
 

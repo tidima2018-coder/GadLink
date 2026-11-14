@@ -1,8 +1,10 @@
-import "./js/friends-ui.js?v=4";
+import "./js/friends-ui.js?v=5";
 import { supabase } from "./js/supabaseClient.js";
+import { createUserPresence } from "./js/user-presence.js";
+import { createRealtimeRecovery } from "./js/realtime-recovery.js";
 import { getPublicProfileNames, resolveAvatarUrl } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js?v=5";
-import { createVoiceCallController } from "./js/voice-calls.js?v=2";
+import { createVoiceCallController } from "./js/voice-calls.js?v=3";
 import { createVoiceRooms } from "./js/voice-rooms.js";
 import { createPushNotifications } from "./js/push-notifications.js";
 import { createChatBackgroundSettings } from "./js/chat-background.js";
@@ -21,6 +23,24 @@ import {
 } from "./js/auth.js";
 
 let user = null;
+const userPresence = createUserPresence();
+const realtimeRecovery = createRealtimeRecovery();
+let profileSyncPending = false;
+async function syncVisibleProfiles() {
+  const ownerId = user?.id;
+  if (!ownerId || profileSyncPending) return;
+  profileSyncPending = true;
+  try {
+    const ids = [...new Set([...document.querySelectorAll("[data-profile-avatar-user-id]")]
+      .map(element => element.dataset.profileAvatarUserId).filter(Boolean))];
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const profiles = await getPublicProfileNames(ids.slice(offset, offset + 100));
+      if (user?.id !== ownerId) return;
+      profiles.forEach(applyPublicProfileUpdate);
+    }
+  } catch (error) { console.warn("GadLink profile catch-up:", error); }
+  finally { profileSyncPending = false; }
+}
 let authStartupResolved = false;
 let authStartupPromise = null;
 let currentConversation = null;
@@ -53,11 +73,17 @@ let currentAvatarUrl = null;
 let chatOverviewSubscription = null;
 let profileUpdatesChannel = null;
 let profileUpdatesOwnerId = null;
+let profileUpdatesVersion = 0;
 const conversationOverviewRows = new Map();
 const conversationsById = new Map();
 const conversationUnreadCounts = new Map();
 let conversationOverviewRequestVersion = 0;
 let conversationOverviewRefreshTimer = null;
+let messageHistoryVersion = 0;
+let messageRealtimeRevision = 0;
+let channelHistoryVersion = 0;
+let channelOpenVersion = 0;
+let conversationOpenVersion = 0;
 
 const byId = (id) => document.getElementById(id);
 const appErrorToast = document.createElement("div");
@@ -476,6 +502,18 @@ function applyPublicProfileUpdate(profile) {
   if (!profile?.id) return;
   const avatarUrl = resolveAvatarUrl(profile.avatar_url);
   const publicProfile = { ...profile, avatar_url: avatarUrl || null };
+  for (const [id, conversation] of conversationsById) {
+    if (conversation.is_group || conversation.peerProfile?.id !== profile.id) continue;
+    conversation.peerProfile = publicProfile;
+    conversation.name = publicProfile.username || conversation.name;
+    const title = conversationOverviewRows.get(id)?.querySelector(".conversation-row__title");
+    if (title) title.textContent = conversation.name;
+    if (currentConversation?.id === id) {
+      currentConversation.peerProfile = publicProfile;
+      currentConversation.name = conversation.name;
+      byId("chat-title").textContent = conversation.name;
+    }
+  }
   if (profile.id === user?.id) {
     currentUsername = profile.username?.trim() || currentUsername;
     currentAvatarUrl = profile.avatar_url || null;
@@ -498,15 +536,18 @@ function applyPublicProfileUpdate(profile) {
 
 async function subscribeToProfileUpdates(ownerId) {
   if (profileUpdatesChannel && profileUpdatesOwnerId === ownerId) return;
+  const version = ++profileUpdatesVersion;
   if (profileUpdatesChannel) await supabase.removeChannel(profileUpdatesChannel);
+  if (version !== profileUpdatesVersion) return;
   profileUpdatesChannel = null;
   profileUpdatesOwnerId = null;
 
   const { data, error } = await supabase.auth.getSession();
   const session = data?.session;
   if (error) throw error;
-  if (!session?.access_token || session.user?.id !== ownerId) return;
+  if (version !== profileUpdatesVersion || user?.id !== ownerId || !session?.access_token || session.user?.id !== ownerId) return;
   await supabase.realtime.setAuth(session.access_token);
+  if (version !== profileUpdatesVersion || user?.id !== ownerId) return;
 
   const channel = supabase
     .channel("gadlink-profile-avatars", { config: { private: true } })
@@ -515,12 +556,14 @@ async function subscribeToProfileUpdates(ownerId) {
       schema: "public",
       table: "profiles"
     }, (payload) => {
+      if (version !== profileUpdatesVersion || user?.id !== ownerId) return;
       const profile = payload.new;
       if (profile?.id) applyPublicProfileUpdate(profile);
     });
   profileUpdatesChannel = channel;
   profileUpdatesOwnerId = ownerId;
   channel.subscribe((status, channelError) => {
+    if (status === "SUBSCRIBED") void syncVisibleProfiles();
     if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
       console.error("GadLink profile Realtime:", channelError || status);
     }
@@ -855,7 +898,7 @@ async function loadConversations() {
     item.dataset.conversationId = conversation.id;
     conversationsById.set(conversation.id, { ...conversation, name: displayName, peerProfile });
     conversationOverviewRows.set(conversation.id, item);
-    button.addEventListener("click", () => openConversation({ ...conversation, name: displayName, peerProfile }));
+    button.addEventListener("click", () => openConversation(conversationsById.get(conversation.id)));
     item.append(button);
     list.append(item);
   }
@@ -904,46 +947,31 @@ function updateMessageSyncCursor(conversationId, createdAt) {
   if (!current || createdAt > current) messageSyncCursors.set(conversationId, createdAt);
 }
 
-async function loadConversationHistory(conversationId, catchUp = false) {
+async function loadConversationHistory(conversationId) {
+  const requestVersion = ++messageHistoryVersion;
+  const realtimeRevision = messageRealtimeRevision;
   const ownerId = user?.id;
   if (!isUuid(conversationId) || !ownerId) return false;
 
-  const cursor = catchUp ? messageSyncCursors.get(conversationId) : null;
+  // Reconcile the visible window, including edits and deletions missed offline.
   const messages = [];
-  if (cursor) {
-    let offset = 0;
-    const pageSize = 500;
-    while (true) {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("id,user_id,content,created_at")
-        .eq("conversation_id", conversationId)
-        .gte("created_at", cursor)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(offset, offset + pageSize - 1);
-      if (error) throw error;
-      if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
-      messages.push(...(data || []));
-      if ((data || []).length < pageSize) break;
-      offset += pageSize;
-    }
-  } else {
-    const { data, error } = await supabase
-      .from("messages")
-      .select("id,user_id,content,created_at")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(100);
-    if (error) throw error;
-    if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
-    messages.push(...(data || []).reverse());
-  }
-
-  if (!messages.length) return true;
-  const namesById = await loadPublicNames(messages.map((message) => message.user_id), "chat-status");
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id,user_id,content,created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(100);
+  if (error) throw error;
   if (user?.id !== ownerId || currentConversation?.id !== conversationId) return false;
+  messages.push(...(data || []).reverse());
+  const namesById = await loadPublicNames(messages.map((message) => message.user_id), "chat-status");
+  if (user?.id !== ownerId || currentConversation?.id !== conversationId || requestVersion !== messageHistoryVersion) return false;
+  if (realtimeRevision !== messageRealtimeRevision) { scheduleChatSync(); return false; }
+  const visibleIds = new Set(messages.map(message => String(message.id)));
+  byId("messages").querySelectorAll("[data-message-id]").forEach(element => {
+    if (!visibleIds.has(element.dataset.messageId)) element.remove();
+  });
   for (const message of messages) {
     message.profiles = namesById.get(message.user_id);
     addMessage(byId("messages"), message);
@@ -1019,6 +1047,7 @@ function addMessage(container, message) {
 }
 
 async function openConversation(conversation) {
+  const openVersion = ++conversationOpenVersion;
   const conversationId = conversation?.id;
   if (!isUuid(conversationId)) {
     currentConversation = null;
@@ -1027,7 +1056,7 @@ async function openConversation(conversation) {
     setStatus("chat-status", "Не удалось открыть чат: сервер не вернул корректный UUID диалога.");
     return false;
   }
-  currentConversation = { ...conversation, id: conversationId };
+  currentConversation = { ...conversationsById.get(conversationId), ...conversation, id: conversationId };
   const peerId = currentConversation.is_group
     ? null
     : [...directConversationByPeer.entries()].find(([, id]) => id === conversationId)?.[0];
@@ -1047,15 +1076,16 @@ async function openConversation(conversation) {
   byId("messages").replaceChildren();
 
   if (chatSubscription) await supabase.removeChannel(chatSubscription);
-  if (currentConversation?.id !== conversationId) return false;
+  if (!user || openVersion !== conversationOpenVersion || currentConversation?.id !== conversationId) return false;
   chatSubscription = supabase
-    .channel(`messages-${conversationId}`)
+    .channel(`messages-${conversationId}`, { config: { private: true } })
     .on("postgres_changes", {
       event: "*",
       schema: "public",
       table: "messages",
       filter: `conversation_id=eq.${conversationId}`
     }, async (payload) => {
+      messageRealtimeRevision += 1;
       const message = payload.new;
       if (payload.eventType === "DELETE") {
         byId("messages").querySelector(`[data-message-id="${payload.old.id}"]`)?.remove();
@@ -1125,7 +1155,7 @@ function subscribeToConversationMemberships() {
 
   const ownerId = user.id;
   conversationMembershipSubscription = supabase
-    .channel(`conversation-members-${ownerId}`)
+    .channel(`conversation-members-${ownerId}`, { config: { private: true } })
     .on("postgres_changes", {
       event: "*",
       schema: "public",
@@ -1147,16 +1177,18 @@ function subscribeToChatOverview() {
   if (chatOverviewSubscription) void supabase.removeChannel(chatOverviewSubscription);
   const ownerId = user.id;
   chatOverviewSubscription = supabase
-    .channel(`chat-overview-${ownerId}`)
+    .channel(`chat-overview-${ownerId}`, { config: { private: true } })
     .on("postgres_changes", {
       event: "*",
       schema: "public",
       table: "messages"
     }, (payload) => {
+      if (user?.id !== ownerId) return;
       const message = payload.new;
       if (payload.eventType === "DELETE" || !message?.conversation_id ||
           !conversationOverviewRows.has(message.conversation_id)) {
         if (payload.eventType === "DELETE") {
+          scheduleChatSync();
           void refreshConversationOverview().catch((error) => {
             console.error("GadLink chat overview refresh:", error);
           });
@@ -1169,7 +1201,7 @@ function subscribeToChatOverview() {
       }, payload.eventType === "INSERT" &&
         message.user_id !== ownerId &&
         !viewingConversation);
-      if (payload.eventType === "INSERT") scheduleConversationOverviewRefresh();
+      scheduleConversationOverviewRefresh();
       if (payload.eventType === "INSERT" &&
           message.user_id !== ownerId &&
           viewingConversation) {
@@ -1214,7 +1246,7 @@ async function openContactChat({ userId, username }) {
 
     document.querySelector('[data-section="chats-section"]')?.click();
     await loadConversations();
-    const opened = await openConversation({ id, name: contactName, is_group: false });
+    const opened = await openConversation({ id, name: contactName, is_group: false, peerProfile: namesById.get(userId) });
     if (opened) setStatus("chat-status", `Диалог с ${contactName} открыт.`);
   } catch (error) {
     console.error("GadLink contact chat:", error);
@@ -1427,7 +1459,29 @@ async function openServer(server) {
   setStatus("community-status", "");
 }
 
+async function syncChannelHistory() {
+  const id = currentChannel?.id;
+  const ownerId = user?.id;
+  if (!id || !ownerId || currentChannel.channel_type === "voice") return;
+  const version = ++channelHistoryVersion;
+  const { data, error } = await supabase.from("channel_messages")
+    .select("id,user_id,content,created_at").eq("channel_id", id)
+    .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
+  if (error) throw error;
+  const names = await loadPublicNames((data || []).map(message => message.user_id), "community-status");
+  if (version !== channelHistoryVersion || currentChannel?.id !== id || user?.id !== ownerId) return;
+  const ids = new Set((data || []).map(message => String(message.id)));
+  byId("channel-messages").querySelectorAll("[data-message-id]").forEach(element => {
+    if (!ids.has(element.dataset.messageId)) element.remove();
+  });
+  for (const message of (data || []).reverse()) {
+    message.profiles = names.get(message.user_id);
+    addMessage(byId("channel-messages"), message);
+  }
+}
+
 async function openChannel(channel) {
+  const openVersion = ++channelOpenVersion;
   currentChannel = channel;
   byId("channel-view").hidden = false;
   byId("channel-title").textContent = channel.name;
@@ -1463,13 +1517,14 @@ async function openChannel(channel) {
     return;
   }
   const namesById = await loadPublicNames((data || []).map((message) => message.user_id), "community-status");
+  if (!user || openVersion !== channelOpenVersion || currentChannel?.id !== channel.id) return;
   for (const message of data || []) {
     message.profiles = namesById.get(message.user_id);
     addMessage(byId("channel-messages"), message);
   }
 
   channelSubscription = supabase
-    .channel(`channel-messages-${channel.id}`)
+    .channel(`channel-messages-${channel.id}`, { config: { private: true } })
     .on("postgres_changes", {
       event: "*",
       schema: "public",
@@ -1482,10 +1537,17 @@ async function openChannel(channel) {
       }
       const message = payload.new;
       const names = await loadPublicNames([message.user_id], "community-status");
+      if (!user || currentChannel?.id !== channel.id) return;
       message.profiles = names.get(message.user_id);
       addMessage(byId("channel-messages"), message);
     })
-    .subscribe();
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "channel_messages" }, payload => {
+      if (currentChannel?.id !== channel.id) return;
+      byId("channel-messages").querySelector(`[data-message-id="${payload.old.id}"]`)?.remove();
+    })
+    .subscribe(status => {
+      if (status === "SUBSCRIBED") void syncChannelHistory().catch(error => console.warn("GadLink channel catch-up:", error));
+    });
 }
 
 async function openNotificationRoute() {
@@ -1526,6 +1588,8 @@ async function loadApp() {
   }
   showAppStartupError("");
   showApp(true);
+  realtimeRecovery.start();
+  void userPresence.start(user.id).catch(error => console.error("GadLink Presence:", error));
   void subscribeToProfileUpdates(user.id).catch((error) => {
     console.error("GadLink profile Realtime subscription:", error);
   });
@@ -1584,13 +1648,13 @@ async function loadApp() {
   subscribeToChatOverview();
   if (!feedPostsChannel) {
     feedPostsChannel = supabase
-      .channel("feed-posts")
+      .channel("feed-posts", { config: { private: true } })
       .on("postgres_changes", {
-        event: "INSERT",
+        event: "*",
         schema: "public",
         table: "posts"
       }, loadPosts)
-      .subscribe();
+      .subscribe(status => { if (status === "SUBSCRIBED") void loadPosts(); });
   }
   try {
     await openNotificationRoute();
@@ -1912,6 +1976,13 @@ document.addEventListener("keydown", (event) => {
 
 byId("conversation-search").addEventListener("input", applyConversationFilters);
 window.addEventListener("online", scheduleChatSync);
+window.addEventListener("gadlink:resync", () => {
+  if (!user) return;
+  scheduleChatSync();
+  void syncVisibleProfiles();
+  void syncChannelHistory().catch(error => console.warn("GadLink channel catch-up:", error));
+  void loadPosts().catch(error => console.warn("GadLink feed catch-up:", error));
+});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     scheduleChatSync();
@@ -2454,6 +2525,11 @@ byId("channel-message-form").addEventListener("submit", async (event) => {
 
 supabase.auth.onAuthStateChange((_event, session) => {
   if (!session) {
+    realtimeRecovery.stop();
+    profileUpdatesVersion += 1;
+    void userPresence.stop();
+    if (feedPostsChannel) void supabase.removeChannel(feedPostsChannel);
+    feedPostsChannel = null;
     if (profileUpdatesChannel) void supabase.removeChannel(profileUpdatesChannel);
     profileUpdatesChannel = null;
     profileUpdatesOwnerId = null;

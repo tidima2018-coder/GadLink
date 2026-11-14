@@ -1910,8 +1910,25 @@ is; white-space: nowrap; }
 .friend-add-dialog__hint { margin: 8px 0 16px; color: var(--muted); font-size: 13px; }
 #friend-search-form { display: flex; align-items: center; gap: 8px; }
 #friend-search-form input { flex: 1 1 auto; }
-#friend-search-form button { flex: 0 0 auto; color: var(--accent-ink); border-color: transparent; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); }
-#friend-status { min-height: 1.5em; margin: 12px 0 0; color: #c8a9af; font-size: 13px; overflow-wrap: anywhere; }
+#friend-search-form button { position: relative; flex: 0 0 auto; color: var(--accent-ink); border-color: transparent; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
+#friend-search-form button:active:not(:disabled) { transform: scale(.96); }
+#friend-search-form button:disabled { cursor: wait; opacity: .82; }
+#friend-search-form button.is-loading { animation: friend-search-pulse .9s ease-in-out infinite alternate; }
+#friend-search-form button.is-loading::after { display: inline-block; width: 12px; height: 12px; margin-left: 8px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; content: ""; animation: friend-search-spin .7s linear infinite; }
+#friend-status { min-height: 1.5em; margin: 12px 0 0; color: #c8a9af; font-size: 13px; overflow-wrap: anywhere; transition: color .18s ease, opacity .18s ease; }
+#friend-status.is-loading { display: flex; align-items: center; gap: 8px; }
+#friend-status.is-loading::before { width: 12px; height: 12px; flex: 0 0 12px; border: 2px solid rgba(238,145,165,.35); border-top-color: #ee91a5; border-radius: 50%; content: ""; animation: friend-search-spin .7s linear infinite; }
+#friend-status.is-found { color: #eea1b1; }
+#friend-status.is-empty { color: #c8a9af; }
+#friend-status.is-error { color: #f1a0aa; }
+@keyframes friend-search-spin { to { transform: rotate(360deg); } }
+@keyframes friend-search-pulse { to { box-shadow: 0 0 0 4px rgba(238,145,165,.12), 0 6px 20px rgba(201,88,115,.28); } }
+@media (prefers-reduced-motion: reduce) {
+  #friend-search-form button,
+  #friend-search-form button.is-loading,
+  #friend-search-form button.is-loading::after,
+  #friend-status.is-loading::before { animation: none; transition: none; }
+}
 #friend-search-results { display: grid; gap: 8px; }
 #friend-add-dialog .friend-item {
   display: flex;
@@ -2261,14 +2278,15 @@ is; white-space: nowrap; }
   backdrop-filter: blur(12px);
 }
 .voice-call-dialog__panel {
+  position: relative;
   display: flex;
   width: min(420px, 100%);
-  max-height: min(90dvh, 700px);
+  max-height: calc(100dvh - 28px);
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: clamp(24px, 6vw, 42px);
-  overflow: auto;
+  gap: 8px;
+  padding: clamp(18px, 4vw, 28px);
+  overflow: hidden;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 28px;
   background: linear-gradient(155deg, #29262b, #171719 72%);
@@ -2277,9 +2295,9 @@ is; white-space: nowrap; }
 }
 .voice-call-avatar,
 .voice-call-avatar-placeholder {
-  width: 112px;
-  height: 112px;
-  flex: 0 0 112px;
+  width: 94px;
+  height: 94px;
+  flex: 0 0 94px;
   border: 2px solid rgba(240,173,183,.55);
   border-radius: 50%;
   object-fit: cover;
@@ -2288,6 +2306,8 @@ is; white-space: nowrap; }
 }
 .voice-call-avatar-placeholder { display: grid; place-items: center; color: #28171b; font-size: 40px; font-weight: 700; }
 .voice-call-dialog__panel h2 { max-width: 100%; margin: 4px 0 0; overflow-wrap: anywhere; font-size: clamp(22px, 5vw, 28px); }
+#voice-call-minimize { position: absolute; top: 12px; right: 12px; z-index: 1; display: grid; width: 38px; min-height: 38px; place-items: center; padding: 0; border-color: rgba(240,173,183,.45); border-radius: 50%; color: #f0adb7; background: rgba(255,255,255,.045); font-size: 22px; line-height: 1; }
+#voice-call-minimize:hover { color: #fff; background: rgba(240,173,183,.15); }
 #voice-call-status { min-height: 1.5em; margin: 0; color: #c9c2c8; overflow-wrap: anywhere; }
 .voice-call-sound-notice { display: grid; justify-items: center; gap: 8px; padding: 10px 12px; border: 1px solid rgba(240,173,183,.24); border-radius: 14px; color: #f0c4cb; background: rgba(119,55,70,.2); font-size: 13px; }
 .voice-call-sound-notice[hidden] { display: none; }
@@ -2374,6 +2394,27 @@ is; white-space: nowrap; }
 .voice-call-actions { display: flex; width: 100%; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
 .voice-call-actions[hidden] { display: none; }
 .voice-call-actions button { min-height: 46px; }
+.voice-call-audio-settings { display: block; width: 100%; flex: 1 0 100%; padding: 0 11px; border: 1px solid rgba(238,145,165,.18); border-radius: 13px; background: rgba(14,13,16,.28); text-align: left; }
+.voice-call-audio-settings summary { min-height: 38px; padding: 9px 0; color: #d8cbd2; cursor: pointer; font-size: 13px; font-weight: 650; }
+.voice-call-audio-settings summary::marker { color: #ee91a5; }
+.voice-call-audio-settings[open] { display: grid; gap: 8px; padding-bottom: 10px; }
+.voice-call-audio-settings label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.voice-call-audio-settings select { width: 100%; min-width: 0; min-height: 34px; }
+.voice-call-audio-settings input[type="range"] { width: 100%; min-height: 24px; accent-color: var(--accent); }
+.voice-call-minimized { position: fixed; z-index: 1202; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; width: min(380px, calc(100vw - 24px)); min-height: 62px; align-items: center; gap: 9px; padding: 9px 10px 9px 16px; border: 1px solid rgba(238,145,165,.46); border-radius: 20px; color: #f7edf0; background: linear-gradient(135deg, rgba(45,35,43,.98), rgba(27,24,29,.99)); box-shadow: 0 12px 38px rgba(0,0,0,.42), 0 0 26px rgba(238,145,165,.1); }
+.voice-call-minimized[hidden] { display: none; }
+.voice-call-minimized > span { min-width: 0; flex: 1 1 auto; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.voice-call-minimized time { flex: 0 0 auto; color: #e8a2b0; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.voice-call-minimized button { min-height: 38px; flex: 0 0 auto; padding: 0 12px; border-radius: 12px; font-size: 13px; }
+.voice-call-minimized #voice-call-minimized-end { width: 38px; min-width: 38px; padding: 0; border-radius: 50%; }
+@media (max-height: 720px) {
+  .voice-call-dialog { padding: 8px; }
+  .voice-call-dialog__panel { max-height: calc(100dvh - 16px); gap: 5px; padding: 14px; border-radius: 22px; }
+  .voice-call-avatar, .voice-call-avatar-placeholder { width: 72px; height: 72px; flex-basis: 72px; }
+  .voice-call-waves { display: none; }
+  .voice-call-actions { gap: 6px; margin-top: 5px; }
+  .voice-call-actions button { min-height: 40px; }
+}
 .voice-call-accept { color: #fff; border-color: transparent; background: #398866; }
 .voice-call-accept:hover { background: #46a079; }
 .voice-call-end { color: #fff; border-color: transparent; background: #a94253; }
@@ -4499,3 +4540,15 @@ main {
 }
 .app-error-toast[hidden] { display: none !important; }
 .app-error-toast .notice-dismiss { right: 8px; top: 50%; transform: translateY(-50%); }
+.activity-privacy { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
+.activity-privacy input { width: 18px; min-width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; accent-color: var(--accent); }
+[data-profile-avatar-user-id] { position: relative; overflow: visible; }
+[data-profile-avatar-user-id].is-user-online::after {
+  content: ""; position: absolute; right: 0; bottom: 0; width: 10px; height: 10px;
+  border-radius: 50%; background: #43dc8b; border: 2px solid #211725; z-index: 2;
+}
+.user-activity { display: block; color: #b8a9bb; font-size: .7rem; line-height: 1.3; font-weight: 400; }
+.user-activity.is-online { color: #43dc8b; }
+.message-avatar + .user-activity { display: none; }
+.friend-username .user-activity, .conversation-row__title .user-activity, #chat-title .user-activity { margin-top: 3px; white-space: normal; }
+.reel-view-count { display: block; margin-top: 6px; color: #cdbbcf; font-size: 12px; }
