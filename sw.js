@@ -1,10 +1,19 @@
+<<<<<<< HEAD
 const CACHE_NAME = "gadlink-static-v39";
+=======
+const CACHE_NAME = "gadlink-static-v37";
+>>>>>>> 98c2f5a9265a89bb56bc6688a4d7f1d66da0a44d
 const APP_SHELL = [
   "./",
   "./index.html",
   "./confirm.html",
+<<<<<<< HEAD
   "./style.css?v=16",
   "./app.js?v=23",
+=======
+  "./style.css?v=14",
+  "./app.js?v=20",
+>>>>>>> 98c2f5a9265a89bb56bc6688a4d7f1d66da0a44d
   "./js/auth.js",
   "./js/confirm.js",
   "./js/supabaseClient.js",
