@@ -4,6 +4,8 @@ import { supabase } from "./supabaseClient.js";
 import {
   searchUsers,
   getPublicProfileNames,
+  getPublicProfileDetails,
+  resolveAvatarUrl,
   addFriend,
   acceptFriend,
   removeFriend
@@ -35,6 +37,10 @@ const publicProfileAvatarPlaceholder = document.getElementById("public-profile-a
 const EMPTY_ABOUT_TEXT = "Информация о себе не указана";
 const ABOUT_LOADING_TEXT = "Загружаем информацию о себе…";
 const ABOUT_LOAD_ERROR_TEXT = "Не удалось загрузить описание профиля. Проверьте подключение и попробуйте снова.";
+const ABOUT_SESSION_ERROR_TEXT = "Сессия не найдена. Войдите в GadLink и откройте профиль снова.";
+const ABOUT_PERMISSION_ERROR_TEXT = "Нет доступа к публичным данным профиля. Проверьте права чтения профилей в Supabase.";
+const ABOUT_RPC_SETUP_ERROR_TEXT = "Безопасное чтение публичного профиля не настроено. Примените supabase/public_profile_details_rpc.sql в Supabase.";
+const ABOUT_PROFILE_NOT_FOUND_TEXT = "Профиль не найден или больше недоступен.";
 
 if (
   section &&
@@ -113,6 +119,43 @@ if (
     }
   }
 
+  function logAboutReadDiagnostic(source, profileId, error, data) {
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    const returnedProfile = rows.find((row) => row?.id === profileId) || null;
+    const diagnostic = {
+      source,
+      selectedProfileId: profileId,
+      errorCode: error?.code || null,
+      errorMessage: error?.message || null,
+      httpStatus: error?.status ?? error?.statusCode ?? null,
+      profileFound: Boolean(returnedProfile),
+      returnedProfileId: rows[0]?.id || null,
+      idMatchesSelectedProfile: Boolean(returnedProfile)
+    };
+    if (error || !returnedProfile) console.warn("GadLink public profile about diagnostic:", diagnostic);
+    else console.info("GadLink public profile about diagnostic:", diagnostic);
+    return returnedProfile;
+  }
+
+  function getAboutReadErrorMessage(error) {
+    const code = String(error?.code || "").toLowerCase();
+    const message = String(error?.message || "").toLowerCase();
+    const status = Number(error?.status ?? error?.statusCode);
+    if (status === 401 || status === 403 || code === "42501" || message.includes("permission denied")) {
+      return ABOUT_PERMISSION_ERROR_TEXT;
+    }
+    if (code === "pgrst202" || message.includes("get_public_profile_details") && message.includes("not found")) {
+      return ABOUT_RPC_SETUP_ERROR_TEXT;
+    }
+    if ([0, 502, 503, 504].includes(status) ||
+        /failed to fetch|fetch failed|networkerror|network request failed|load failed|timeout/.test(message)) {
+      return ABOUT_LOAD_ERROR_TEXT;
+    }
+    return code
+      ? `Не удалось загрузить описание профиля (код ${code}).`
+      : ABOUT_LOAD_ERROR_TEXT;
+  }
+
   async function openPublicProfile(profile, opener) {
     if (!profile?.id) return;
     const profileId = profile.id;
@@ -129,25 +172,82 @@ if (
     requestAnimationFrame(() => publicProfileDialog.classList.add("is-open"));
     publicProfileDialog.querySelector(".public-profile-dialog__close")?.focus();
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,about")
-        .eq("id", profileId)
-        .maybeSingle();
-      if (error) throw error;
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (requestId !== publicProfileRequestId || publicProfileDialog.hidden || publicProfileUserId !== profileId) return;
-      if ((publicProfileAboutVersions.get(profileId) || 0) !== aboutVersion) return;
-      if (!data || data.id !== profileId) {
-        console.error("GadLink public profile about load failed:", "PROFILE_ROW_NOT_VISIBLE");
-        publicProfileAbout.textContent = ABOUT_LOAD_ERROR_TEXT;
+      if (sessionError) {
+        logAboutReadDiagnostic("session", profileId, sessionError, null);
+        publicProfileAbout.textContent = sessionError.status === 401 || sessionError.status === 403
+          ? ABOUT_SESSION_ERROR_TEXT
+          : getAboutReadErrorMessage(sessionError);
         return;
       }
-      publicProfileAbout.textContent = data.about?.trim() || EMPTY_ABOUT_TEXT;
+      if (!sessionData?.session?.user?.id) {
+        publicProfileAbout.textContent = ABOUT_SESSION_ERROR_TEXT;
+        logAboutReadDiagnostic("session", profileId, null, null);
+        return;
+      }
+
+      let directData = null;
+      let directError = null;
+      try {
+        const result = await supabase
+          .from("profiles")
+          .select("id,about")
+          .eq("id", profileId)
+          .maybeSingle();
+        directData = result.data;
+        directError = result.error;
+      } catch (error) {
+        directError = error;
+      }
+      if (requestId !== publicProfileRequestId || publicProfileDialog.hidden || publicProfileUserId !== profileId) return;
+      if ((publicProfileAboutVersions.get(profileId) || 0) !== aboutVersion) return;
+      const directProfile = logAboutReadDiagnostic("profiles SELECT", profileId, directError, directData);
+      let publicProfile = directProfile;
+
+      if (!directProfile) {
+        let rpcData = null;
+        let rpcError = null;
+        try {
+          const detailMap = await getPublicProfileDetails([profileId]);
+          rpcData = [...detailMap.values()];
+        } catch (error) {
+          rpcError = error;
+        }
+        if (requestId !== publicProfileRequestId || publicProfileDialog.hidden || publicProfileUserId !== profileId) return;
+        if ((publicProfileAboutVersions.get(profileId) || 0) !== aboutVersion) return;
+        publicProfile = logAboutReadDiagnostic("get_public_profile_details RPC", profileId, rpcError, rpcData);
+        if (rpcError) throw rpcError;
+      }
+
+      if (!publicProfile || publicProfile.id !== profileId) {
+        publicProfileAbout.textContent = ABOUT_PROFILE_NOT_FOUND_TEXT;
+        return;
+      }
+
+      const loadedProfile = {
+        ...profile,
+        id: profileId,
+        ...(publicProfile.username ? { username: publicProfile.username } : {}),
+        ...(Object.prototype.hasOwnProperty.call(publicProfile, "avatar_url")
+          ? { avatar_url: resolveAvatarUrl(publicProfile.avatar_url) || null }
+          : {}),
+        about: typeof publicProfile.about === "string" ? publicProfile.about : ""
+      };
+      publicProfileName.textContent = loadedProfile.username?.trim() || "Пользователь";
+      setPublicProfileAvatar(loadedProfile);
+      publicProfileAbout.textContent = loadedProfile.about.trim() || EMPTY_ABOUT_TEXT;
+      if (state.profileById.has(profileId)) {
+        state.profileById.set(profileId, mergeProfileData(state.profileById.get(profileId), loadedProfile));
+      }
+      state.searchResults = state.searchResults.map((item) =>
+        item.id === profileId ? mergeProfileData(item, loadedProfile) : item
+      );
     } catch (error) {
-      console.error("GadLink public profile about load failed:", error?.code || "UNKNOWN_ERROR");
+      logAboutReadDiagnostic("profile load", profileId, error, null);
       if (requestId === publicProfileRequestId && !publicProfileDialog.hidden && publicProfileUserId === profileId &&
           (publicProfileAboutVersions.get(profileId) || 0) === aboutVersion) {
-        publicProfileAbout.textContent = ABOUT_LOAD_ERROR_TEXT;
+        publicProfileAbout.textContent = getAboutReadErrorMessage(error);
       }
     }
   }
@@ -234,10 +334,10 @@ if (
       gap: 14px;
       padding: 15px;
       margin: 10px 0;
-      border: 1px solid #353b56;
-      border-radius: 12px;
-      background: #1b2033;
-      color: #f3f5ff;
+      border: 1px solid rgba(238,145,165,.18);
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(41,34,41,.96), rgba(28,25,30,.98));
+      color: #f4edf1;
     }
 
     #friends-section .friend-item--search {
@@ -331,7 +431,7 @@ if (
     }
 
     #friends-section .friend-empty {
-      color: #adb5cd;
+      color: #b9aeb7;
       margin: 12px 0 24px;
     }
 

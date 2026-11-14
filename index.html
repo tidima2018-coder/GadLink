@@ -12,7 +12,7 @@
   <link rel="icon" href="./assets/gadlink-icon.svg?v=3" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/gadlink-icon-192.png?v=3">
   <title>GadLink</title>
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
   <div id="profile-menu" class="profile-menu" hidden inert>
@@ -57,7 +57,19 @@
   </dialog>
 
   <main>
-    <section id="auth-section">
+    <section id="auth-startup" class="auth-startup" aria-labelledby="auth-startup-title" aria-live="polite">
+      <div class="auth-startup__content">
+        <div class="auth-startup__brand">
+          <img src="./assets/gadlink-icon.svg?v=3" alt="" width="86" height="83">
+          <span class="auth-startup__spinner" aria-hidden="true"></span>
+        </div>
+        <h1 id="auth-startup-title">GadLink</h1>
+        <p id="auth-startup-message">Проверяем вашу сессию…</p>
+        <button id="auth-startup-retry" type="button" hidden>Повторить</button>
+      </div>
+    </section>
+
+    <section id="auth-section" hidden>
       <img class="auth-logo" src="./assets/gadlink-icon-192.png" alt="GadLink">
       <p class="auth-intro">Общайтесь и оставайтесь на связи</p>
       <h2>вход и регистрация</h2>
@@ -681,6 +693,6 @@
   </div>
 
   <script type="module" src="js/pwa-install.js"></script>
-  <script type="module" src="app.js?v=17"></script>
+  <script type="module" src="app.js?v=20"></script>
 </body>
 </html>

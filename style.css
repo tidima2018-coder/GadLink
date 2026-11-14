@@ -589,6 +589,75 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   #profile-form, #post-form, #conversation-form, #server-form, #channel-form { padding: 14px; }
 }
 
+/* Session restore splash shown before auth or app becomes available. */
+body:has(#auth-startup:not([hidden])) {
+  min-height: 100svh;
+  overflow: hidden;
+  background: #08070b;
+}
+body:has(#auth-startup:not([hidden]))::before { display: none; }
+body:has(#auth-startup:not([hidden])) main {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  margin: 0;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+}
+.auth-startup {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: min(520px, 82svh);
+  color: #f8f3f5;
+  text-align: center;
+}
+.auth-startup__content { display: grid; justify-items: center; width: min(100%, 360px); }
+.auth-startup__brand { position: relative; width: 96px; height: 96px; margin-bottom: 22px; }
+.auth-startup__brand img {
+  display: block;
+  width: 86px;
+  height: 83px;
+  margin: 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 30px rgba(238,145,165,.28));
+  animation: auth-brand-breathe 2.4s ease-in-out infinite;
+}
+.auth-startup__spinner {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  width: 23px;
+  height: 23px;
+  border: 2px solid rgba(238,145,165,.24);
+  border-top-color: #ee91a5;
+  border-right-color: #ee91a5;
+  border-radius: 50%;
+  animation: auth-startup-spin .85s linear infinite;
+}
+.auth-startup h1 { margin: 0 0 8px; color: #ee91a5; font-size: 30px; font-weight: 750; letter-spacing: -.04em; }
+.auth-startup p { max-width: 34ch; margin: 0; color: #beb5bd; font-size: 14px; line-height: 1.55; }
+.auth-startup.is-error .auth-startup__spinner { display: none; }
+.auth-startup.is-error .auth-startup__brand img { animation: none; }
+.auth-startup.is-error p { color: #dfcbd2; }
+.auth-startup__content > button {
+  min-width: 150px;
+  min-height: 46px;
+  margin-top: 20px;
+  padding: 0 22px;
+  border: 1px solid rgba(238,145,165,.34);
+  border-radius: 14px;
+  color: #211519;
+  background: linear-gradient(135deg, #f0a0b0, #df7e96);
+  font-weight: 700;
+}
+@keyframes auth-startup-spin { to { transform: rotate(360deg); } }
+@keyframes auth-brand-breathe { 50% { transform: translateY(-3px); filter: drop-shadow(0 17px 34px rgba(238,145,165,.42)); } }
+@media (prefers-reduced-motion: reduce) {
+  .auth-startup__spinner, .auth-startup__brand img { animation: none; }
+}
+
 /* Compact GadLink sign-in card inspired by the supplied messenger reference. */
 body:has(#auth-section:not([hidden])) {
   overflow: hidden;

@@ -16,6 +16,26 @@ export function resolveAvatarUrl(value) {
   }
 }
 
+export async function getPublicProfileDetails(profileIds) {
+  const ids = [...new Set((profileIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const { data, error } = await supabase.rpc("get_public_profile_details", {
+    target_profile_ids: ids
+  });
+  if (error) throw error;
+
+  const allowedIds = new Set(ids);
+  return new Map((data || [])
+    .filter((profile) => profile?.id && allowedIds.has(profile.id))
+    .map((profile) => [profile.id, {
+      id: profile.id,
+      username: profile.username?.trim() || "Пользователь",
+      avatar_url: resolveAvatarUrl(profile.avatar_url) || null,
+      about: typeof profile.about === "string" ? profile.about : ""
+    }]));
+}
+
 // Поиск пользователей по нику
 export async function searchUsers(username) {
   const { data, error } = await supabase.rpc(
@@ -28,24 +48,24 @@ export async function searchUsers(username) {
   if (error) throw error;
 
   const profiles = data || [];
-  let aboutById = new Map();
+  let detailsById = new Map();
   if (profiles.length) {
     try {
-      const { data: details, error: detailsError } = await supabase
-        .from("profiles")
-        .select("id,about")
-        .in("id", profiles.map((profile) => profile.id));
-      if (detailsError) throw detailsError;
-      aboutById = new Map((details || []).map((profile) => [profile.id, profile.about || ""]));
+      detailsById = await getPublicProfileDetails(profiles.map((profile) => profile.id));
     } catch (error) {
-      console.error("GadLink public profile details:", error?.code || "UNKNOWN_ERROR");
+      console.error("GadLink public profile details RPC failed:", {
+        code: error?.code || null,
+        message: error?.message || "Unknown error",
+        httpStatus: error?.status || null
+      });
     }
   }
   return profiles.map((profile) => {
-    const about = aboutById.has(profile.id) ? aboutById.get(profile.id) : profile.about;
+    const details = detailsById.get(profile.id);
     return {
       ...profile,
-      about: typeof about === "string" ? about : undefined,
+      username: details?.username || profile.username,
+      about: details ? details.about : profile.about,
       avatar_url: resolveAvatarUrl(profile.avatar_url) || null
     };
   });
@@ -93,17 +113,20 @@ export async function getPublicProfileNames(profileIds) {
     }
   }
   try {
-    const { data: profileDetails, error: detailsError } = await supabase
-      .from("profiles")
-      .select("id,about")
-      .in("id", ids);
-    if (detailsError) throw detailsError;
-    for (const profile of profileDetails || []) {
+    const profileDetails = await getPublicProfileDetails(ids);
+    for (const profile of profileDetails.values()) {
       const existing = profilesById.get(profile.id);
-      if (existing) existing.about = profile.about || "";
+      if (existing) {
+        existing.username = profile.username || existing.username;
+        existing.about = profile.about;
+      }
     }
   } catch (error) {
-    console.error("GadLink public profile descriptions:", error?.code || "UNKNOWN_ERROR");
+    console.error("GadLink public profile details RPC failed:", {
+      code: error?.code || null,
+      message: error?.message || "Unknown error",
+      httpStatus: error?.status || null
+    });
   }
   return profilesById;
 }

@@ -1,4 +1,4 @@
-import "./js/friends-ui.js?v=2";
+import "./js/friends-ui.js?v=4";
 import { supabase } from "./js/supabaseClient.js";
 import { getPublicProfileNames, resolveAvatarUrl } from "./js/friends.js";
 import { createReelsFeed } from "./js/reels.js?v=5";
@@ -21,6 +21,8 @@ import {
 } from "./js/auth.js";
 
 let user = null;
+let authStartupResolved = false;
+let authStartupPromise = null;
 let currentConversation = null;
 let currentUsername = "Пользователь";
 let currentChannel = null;
@@ -334,7 +336,41 @@ function showAppStartupError(message) {
   if (message) addStatusDismissButton(status);
 }
 
+function showAuthStartupLoading() {
+  const startup = byId("auth-startup");
+  startup.classList.remove("is-error");
+  byId("auth-startup-message").textContent = "Проверяем вашу сессию…";
+  byId("auth-startup-retry").hidden = true;
+  startup.hidden = false;
+  byId("auth-section").hidden = true;
+  byId("app").hidden = true;
+}
+
+function showAuthStartupError() {
+  const startup = byId("auth-startup");
+  startup.classList.add("is-error");
+  byId("auth-startup-message").textContent = "Не удалось связаться с Supabase. Проверьте интернет и попробуйте ещё раз.";
+  byId("auth-startup-retry").hidden = false;
+  startup.hidden = false;
+  byId("auth-section").hidden = true;
+  byId("app").hidden = true;
+}
+
+function isTemporaryAuthError(error) {
+  const name = String(error?.name || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  const status = Number(error?.status);
+  const hasStatus = error?.status !== undefined && error?.status !== null && error?.status !== "";
+  return name.includes("retryablefetch") || code.includes("retryablefetch") ||
+    name === "aborterror" || name === "timeouterror" ||
+    (hasStatus && [0, 429, 502, 503, 504].includes(status)) ||
+    /failed to fetch|fetch failed|networkerror|network request failed|load failed|timed? ?out|connection refused|temporarily unavailable/.test(message);
+}
+
 function showApp(isSignedIn) {
+  authStartupResolved = true;
+  byId("auth-startup").hidden = true;
   byId("auth-section").hidden = isSignedIn;
   byId("app").hidden = !isSignedIn;
   byId("menu-toggle").hidden = !isSignedIn;
@@ -2463,32 +2499,59 @@ supabase.auth.onAuthStateChange((_event, session) => {
     chatBackgroundController.setUser(null);
     byId("conversation-list").replaceChildren();
     applyConversationFilters();
-    showApp(false);
+    if (authStartupResolved || user) showApp(false);
   }
 });
 
-const authCallbackParams = getCallbackParams();
-const authCallbackDetected = hasAuthCallback(authCallbackParams);
+async function restoreAuthAtStartup() {
+  if (authStartupPromise) return authStartupPromise;
+  authStartupPromise = (async () => {
+    showAuthStartupLoading();
+    const callbackParams = getCallbackParams();
+    const callbackDetected = hasAuthCallback(callbackParams);
+    let currentUser;
 
-handleAuthCallback(authCallbackParams).then(async () => {
-  if (authCallbackDetected) clearAuthCallback();
-  const currentUser = await getCurrentUser();
-  if (!currentUser) return;
-  user = currentUser;
-  try {
-    await loadApp();
-  } catch (error) {
-    console.error("GadLink app restoration:", error);
-    const confirmed = Boolean(user?.email_confirmed_at || user?.confirmed_at);
-    showApp(confirmed);
-    if (confirmed) {
-      showAppStartupError(`Вы вошли, но приложение загрузилось не полностью: ${error.message}`);
-    } else {
-      setStatus("auth-status", error.message);
+    try {
+      await handleAuthCallback(callbackParams);
+      if (callbackDetected) clearAuthCallback();
+      currentUser = await getCurrentUser();
+    } catch (error) {
+      if (isTemporaryAuthError(error)) {
+        console.error("GadLink could not verify the saved auth session:", error);
+        showAuthStartupError();
+        return;
+      }
+      if (callbackDetected) clearAuthCallback();
+      authStartupResolved = true;
+      user = null;
+      showApp(false);
+      setStatus("auth-status", getAuthErrorMessage(error));
+      return;
     }
-  }
-}).catch((error) => {
-  if (authCallbackDetected) clearAuthCallback();
-  showApp(false);
-  setStatus("auth-status", getAuthErrorMessage(error));
+
+    authStartupResolved = true;
+    if (!currentUser) {
+      user = null;
+      showApp(false);
+      return;
+    }
+
+    user = currentUser;
+    try {
+      await loadApp();
+    } catch (error) {
+      console.error("GadLink app restoration:", error);
+      showApp(true);
+      showAppStartupError(`Вы вошли, но приложение загрузилось не полностью: ${error.message}`);
+    }
+  })().finally(() => {
+    authStartupPromise = null;
+  });
+  return authStartupPromise;
+}
+
+byId("auth-startup-retry").addEventListener("click", () => {
+  void restoreAuthAtStartup();
 });
+
+void restoreAuthAtStartup();
